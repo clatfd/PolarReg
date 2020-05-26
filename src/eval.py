@@ -70,6 +70,15 @@ class Evalresult():
                 ets.append(self.result[ei][slicei]['et'])
         return np.mean(ets)
 
+    #mean abs difference of predciton center
+    @property
+    def meanad(self):
+        mads = []
+        for ei in self.result:
+            for slicei in self.result[ei]:
+                mads.append(self.result[ei][slicei]['mad'])
+        return np.mean(mads)
+
     @property
     def missnum(self):
         mnum = 0

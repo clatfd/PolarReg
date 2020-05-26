@@ -54,7 +54,12 @@ def buildmodel(config):
     regr = Dense(config['patchheight']*2, name='aux_outputr')(fcn1)
     regr = Reshape((config['patchheight'], 2), name='reg')(regr)
 
-    cnn = Model(inputs=input_img, outputs=regr)
+    if 'gradinput' in config and config['gradinput']:
+        input_grad = Input(shape=(config['height'], config['width']),
+                          name='patchimg')
+        cnn = Model(inputs=[input_grad,input_grad], outputs=regr)
+    else:
+        cnn = Model(inputs=input_img, outputs=regr)
 
     #lr=0.01, momentum=0.9,nesterov =True
 

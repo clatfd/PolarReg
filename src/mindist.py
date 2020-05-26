@@ -197,8 +197,9 @@ def multi_min_dist_pred_withinbb(min_dist_cnn, dicomslice, bb, patchheight, patc
     SCALE = 4
     octy = bb.y
     octx = bb.x
+    ENL = 1.2
     min_dist_search_patch = multi_min_dist_map(min_dist_cnn, dicomslice, octy, octx, patchheight, patchwidth)
-    min_dist_search_patch_rz = croppatch(min_dist_search_patch,min_dist_search_patch.shape[1]/2,min_dist_search_patch.shape[0]/2,bb.h/2*SCALE,bb.w/2*SCALE)
+    min_dist_search_patch_rz = croppatch(min_dist_search_patch,min_dist_search_patch.shape[1]/2,min_dist_search_patch.shape[0]/2,bb.h/2*SCALE*ENL,bb.w/2*SCALE*ENL)
     min_dist_search_patch_rz = fillpatch(np.zeros(min_dist_search_patch.shape),min_dist_search_patch_rz)
     #plt.imshow(min_dist_search_patch_rz)
     #plt.show()
@@ -256,9 +257,9 @@ def mergects(nms_dist_map_p, nms_centers):
     mcts = []
     for labeli in label_id_cts:
         mct = np.mean(np.array(label_id_cts[labeli]), axis=0).tolist()
-        mbb = component_bbs[labeli]
+        #mbb = component_bbs[labeli]
         #print('mbb offset', mbb.x - mct[0], mbb.y - mct[1])
-        mcts.append(mbb)
+        mcts.append(mct)
     return mcts
 
 

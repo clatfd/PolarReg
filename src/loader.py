@@ -7,6 +7,7 @@ import random
 import cv2
 from src.variables import DATADESKTOPdir
 from src.BB import BB
+import matplotlib.pyplot as plt
 
 class DBLoader():
 	def __init__(self,pilist=None):
@@ -447,3 +448,14 @@ class CaseLoader():
 			return None
 		return self.caselist['slices'][slicei]['sid']['S101'] - 1
 
+	def plot_polar_ct(self,slicei):
+		if not self.valid_slicei(slicei):
+			return None
+		polarct = self.load_polar_cont(slicei) * 256
+		plt.figure(figsize=(5, 5))
+		plt.xlim([0, 256])
+		plt.ylim([256, 0])
+		plt.plot(polarct[:, 0], np.arange(256), label='Lumen')
+		plt.plot(polarct[:, 1], np.arange(256), label='Wall')
+		plt.legend()
+		plt.show()

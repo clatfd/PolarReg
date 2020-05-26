@@ -154,11 +154,12 @@ def plotct(sz, contourin, contourout):
         intcont.append([int(round(contourout[conti][0])), int(round(contourout[conti][1]))])
     intcont = np.array(intcont)
     cv2.fillPoly(imgmask, pts=[intcont], color=(1, 1, 1))
-    intcont = []
-    for conti in range(len(contourin)):
-        intcont.append([int(round(contourin[conti][0])), int(round(contourin[conti][1]))])
-    intcont = np.array(intcont)
-    cv2.fillPoly(imgmask, pts=[intcont], color=(0, 0, 0))
+    if contourin is not None:
+        intcont = []
+        for conti in range(len(contourin)):
+            intcont.append([int(round(contourin[conti][0])), int(round(contourin[conti][1]))])
+        intcont = np.array(intcont)
+        cv2.fillPoly(imgmask, pts=[intcont], color=(0, 0, 0))
     # pyplot.imshow(imgmask)
     # pyplot.show()
     return imgmask

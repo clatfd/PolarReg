@@ -14,7 +14,7 @@ import datetime
 def stack_polar_seg(vwcnn,min_dist_cnn,bbs,predname, einame, dicomstack,SCALE = 4):
     #cart position 256 points, first lumen second outer wall
     segresult = SegResult(predname, einame, dicomstack)
-    DEBUG = 1
+    DEBUG = 0
 
     vwcfg = {}
     vwcfg['patchheight'] = int(vwcnn.input.shape[1])
@@ -24,6 +24,7 @@ def stack_polar_seg(vwcnn,min_dist_cnn,bbs,predname, einame, dicomstack,SCALE = 
     vwcfg['channel'] = int(vwcnn.input.shape[4])
 
     for slicei in range(len(bbs)):
+        #if slicei!=7:continue
         if len(bbs[slicei])==0:
             continue
         starttime = datetime.datetime.now()
@@ -31,6 +32,10 @@ def stack_polar_seg(vwcnn,min_dist_cnn,bbs,predname, einame, dicomstack,SCALE = 
         bb = bbs[slicei][0]
         cts, nms_dist_map_p = multi_min_dist_pred_withinbb(min_dist_cnn, dicomstack[slicei], bb, 64, 64)
         cts_dcm = to_dcm_cord(cts, bb)
+
+        if DEBUG:
+            plt.imshow(nms_dist_map_p)
+            plt.show()
 
         if len(cts_dcm)>1:
             print('multiple conts',len(cts_dcm))
@@ -41,11 +46,10 @@ def stack_polar_seg(vwcnn,min_dist_cnn,bbs,predname, einame, dicomstack,SCALE = 
         elif len(cts_dcm)!=1:
             print('smallest from ct',cts_dcm)
             dsts = [abs(ct[0]-256)+abs(ct[1]-256) for ct in cts_dcm]
-            cts_dcm = cts_dcm[np.argmin(dsts)]
+            cts_dcm = [cts_dcm[np.argmin(dsts)]]
             #cts_dcm = [np.mean(cts_dcm,axis=0)]
             print('select ct', cts_dcm)
-            plt.imshow(nms_dist_map_p)
-            plt.show()
+
 
         contours, polarconsistency, cts_dcm_recenter = polar_seg_slice(vwcnn,vwcfg,dicomstack,slicei,cts_dcm,SCALE)
         elaspsetime = datetime.datetime.now() - starttime
@@ -64,26 +68,31 @@ def to_dcm_cord(cts,bb,SCALE=4):
     return cts_dcm
 
 def polar_seg_slice(vwcnn,vwcfg,dicomstack,slicei,cts,SCALE = 4):
-    DEBUG = 1
+    DEBUG = 0
     contourin = None
     contourout = None
     polarconsistency = None
     recenters = None
+    if DEBUG:
+        print('cts',cts)
     if len(cts)==1:
         ct = cts[0]
         ctx = ct[0]
         cty = ct[1]
         # iterative pred and refine center
-        REPS = 10
+        REPS = 20
         MOVEFACTOR = 0.5
         MAX_OFF_STEP = 1
         mincty = cty
         minctx = ctx
         mindiff = np.inf
         lastoffset = [0,0]
+        if DEBUG:
+            print('init',ctx, cty)
         for repi in range(REPS):
-            if repi == REPS-1 or MOVEFACTOR<0.1:
-                print('use min diff cts',minctx,mincty,'with mindiff',mindiff)
+            if repi == REPS-1 or MAX_OFF_STEP<0.1:
+                if DEBUG:
+                    print('use min diff cts',minctx,mincty,'with mindiff',mindiff)
                 cty = mincty
                 ctx = minctx
             cartstack = crop_dcm_stack(dicomstack, slicei, cty, ctx, 64, 1)
@@ -106,32 +115,47 @@ def polar_seg_slice(vwcnn,vwcfg,dicomstack,slicei,cts,SCALE = 4):
                 plt.show()
             #offset in 512 dcm cordinate
             polar_cont_offset = cal_polar_offset(polarbd)
-            if lastoffset==polar_cont_offset:
-                MOVEFACTOR *= 2
-                print('move ct no change',MOVEFACTOR)
+            if repi>0 and MAX_OFF_STEP>0.1 and lastoffset==polar_cont_offset:
+                #MAX_OFF_STEP += 0.5/SCALE
+                MAX_OFF_STEP = 0.09
+                if DEBUG:
+                    print('move ct no change',MAX_OFF_STEP,lastoffset,polar_cont_offset)
+                continue
             cofftype = [polar_cont_offset[0]>0,polar_cont_offset[1]>0]
             if repi == 0:
                 offtype = cofftype
 
-            if cofftype != offtype:
-                MOVEFACTOR /= 2
-                print('reduce max move to',MOVEFACTOR)
+            if repi>2 and cofftype != offtype:
+                MAX_OFF_STEP /= 2
+                if DEBUG:
+                    print('reduce max move to',MAX_OFF_STEP)
             offtype = cofftype
             polarconsistency = 1 - np.mean(polarsd, axis=0)
             #ccstl = polarconsistency[0]
             #ccstw = polarconsistency[1]
             # contour positions [x, y] in original dicom space
-            contourin, contourout = toctbd(polarbd / SCALE, ct[0], ct[1])
+            contourin, contourout = toctbd(polarbd / SCALE, ctx, cty)
             cdif = np.max(abs(np.array(polar_cont_offset)))
-            if cdif < 1 or MOVEFACTOR<0.1:
-                print('Break tracklet ref',polar_cont_offset)
+            if cdif < 1 or MAX_OFF_STEP<0.1:
+                print('==',slicei,'Break tracklet ref',polar_cont_offset)
                 break
             if cdif < mindiff:
                 mindiff = cdif
                 mincty = cty
                 minctx = ctx
-            ctx = ctx + max(-MAX_OFF_STEP,min(MAX_OFF_STEP, polar_cont_offset[0] * MOVEFACTOR))
-            cty = cty + max(-MAX_OFF_STEP,min(MAX_OFF_STEP, polar_cont_offset[1] * MOVEFACTOR))
+            cofx = polar_cont_offset[0]
+            cofy = polar_cont_offset[1]
+            if abs(polar_cont_offset[0]) < 1:
+                cofx = 0
+            if abs(polar_cont_offset[1]) < 1:
+                cofy = 0
+
+            if repi<2:
+                ctx += cofx * MOVEFACTOR
+                cty += cofy * MOVEFACTOR
+            else:
+                ctx = ctx + max(-MAX_OFF_STEP,min(MAX_OFF_STEP, cofx * MOVEFACTOR))
+                cty = cty + max(-MAX_OFF_STEP,min(MAX_OFF_STEP, cofy * MOVEFACTOR))
             print('repeat',repi,'offset',polar_cont_offset,ctx,cty)
             lastoffset = polar_cont_offset
         recenters = [[ctx,cty]]

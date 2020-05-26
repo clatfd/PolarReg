@@ -336,7 +336,7 @@ def find_ct_slice(min_dist_cnn, dicomstack, slicei, bball):
             meanct.h = meanct.h / 4
             meanct.c = bb.c
             meanct.classes = bb.classes
-        #print(slicei, meancts)
+    #print(slicei, meancts)
     return meancts
 
 
@@ -346,7 +346,7 @@ def find_cts(min_dist_cnn, dicomstack, bbr):
         cts[slicei] = find_ct_slice(min_dist_cnn, dicomstack, slicei, bbr[slicei])
     return cts
 
-
+from src.UTL import dist
 def findtrack(min_dist_cnn, caseloader, bbr, dicomstack):
     bbrside = [[] for i in range(len(bbr))]
     for slicei in range(len(bbr)):
@@ -355,6 +355,15 @@ def findtrack(min_dist_cnn, caseloader, bbr, dicomstack):
                     bbi.x > 256 and caseloader.side == 'L':
                 bbrside[slicei].append(bbi)
     tracklet = find_cts(min_dist_cnn, dicomstack, bbrside)
+    for slicei in range(len(tracklet)):
+        #print(tracklet[slicei])
+        if slicei > 0 and len(tracklet[slicei]) > 1 and len(tracklet[slicei-1]) == 1:
+            pct = tracklet[slicei-1][0]
+            dsts = []
+            for bbi in tracklet[slicei]:
+                dsts.append(dist([pct.x,pct.y], [bbi.x,bbi.y]))
+            print(slicei,dsts)
+            tracklet[slicei] = [tracklet[slicei][np.argmin(dsts)]]
     return tracklet
 
 
@@ -406,7 +415,9 @@ def display_tracklet(tracklet,figfilename=None):
     plt.legend(['x','y'])
     if figfilename is not None:
         plt.savefig(figfilename)
-    plt.show()
+    else:
+        plt.show()
+    plt.close()
 
 
 def display_tracklet_dcm_patch(tracklet,dicomstack,figfilename=None):
@@ -414,10 +425,120 @@ def display_tracklet_dcm_patch(tracklet,dicomstack,figfilename=None):
     for slicei in range(len(tracklet)):
         for bb in tracklet[slicei]:
             dcmslice = croppatch(dicomstack[slicei],bb.y,bb.x,bb.h,bb.w)
+            w = int(round(bb.w/2))
+            h = int(round(bb.h/2))
+            dcmslice[h, w:w * 3] = np.max(dcmslice)
+            dcmslice[h:h * 3, w] = np.max(dcmslice)
+            dcmslice[h*3, w:w * 3] = np.max(dcmslice)
+            dcmslice[h:h * 3, w*3] = np.max(dcmslice)
             plt.subplot(2,int(np.ceil(len(dicomstack)/2)),slicei+1)
             plt.imshow(dcmslice)
             plt.title(slicei)
     if figfilename is not None:
         plt.savefig(figfilename)
-    plt.show()
+    else:
+        plt.show()
+    plt.close()
 
+
+def intpath(pos1, pos2, dicomstack):
+    DEBUG = 0
+    pos1 = np.array(pos1)
+    pos2 = np.array(pos2)
+    pos1int = [int(round(posi)) for posi in pos1]
+    pos2int = [int(round(posi)) for posi in pos2]
+    direction = pos2 - pos1
+    dist = np.linalg.norm(direction)
+    print(dist)
+    dirnorm = direction / dist
+    intp = []
+    intp.append(dicomstack[pos1int[2]][pos1int[1]][pos1int[0]])
+    if DEBUG:
+        pdsp = croppatch(dicomstack[pos1int[2]], pos1int[1], pos1int[0])
+        pdsp[pdsp.shape[0] // 2] = np.max(pdsp)
+        pdsp[:, pdsp.shape[1] // 2] = np.max(pdsp)
+        plt.title('start')
+        plt.imshow(pdsp)
+        plt.show()
+
+    for stepi in range(int(np.floor(dist))):
+        cpos = pos1 + dirnorm * stepi
+        cposint = np.array([int(np.round(cposi)) for cposi in cpos])
+        if DEBUG:
+            pdsp = croppatch(dicomstack[cposint[2]], cpos[1], cpos[0])
+            pdsp[pdsp.shape[0] // 2] = np.max(pdsp)
+            pdsp[:, pdsp.shape[1] // 2] = np.max(pdsp)
+            plt.imshow(pdsp)
+            plt.title(str(cposint[2]))
+            plt.show()
+
+        intp.append(dicomstack[cposint[2]][cposint[1]][cposint[0]])
+    intp.append(dicomstack[pos2int[2]][pos2int[1]][pos2int[0]])
+    if DEBUG:
+        pdsp = croppatch(dicomstack[pos2int[2]], pos2int[1], pos2int[0])
+        pdsp[pdsp.shape[0] // 2] = np.max(pdsp)
+        pdsp[:, pdsp.shape[1] // 2] = np.max(pdsp)
+        plt.title('end')
+        plt.imshow(pdsp)
+        plt.show()
+    return intp
+
+
+def track_con_path(bbr, trackend, trackstart):
+    bbend = bbr[trackend[0]][trackend[1]]
+    bbstart = bbr[trackstart[0]][trackstart[1]]
+    intensity_along_path = intpath([bbend.x, bbend.y, trackend[0]], [bbstart.x, bbstart.y, trackstart[0]], dicomstack)
+    return intensity_along_path
+
+
+#find match ct (with previous slice) from min dist map
+def ct_with_min_change(bbprev,slicei,cts_dcm,dicomstack):
+    minstd = np.inf
+    ctm = cts_dcm[0]
+    for ci in range(len(cts_dcm)):
+        posstart = [bbprev.x,bbprev.y,slicei-1]
+        posend = [cts_dcm[ci][0],cts_dcm[ci][1],slicei]
+        path_int = intpath(posstart,posend,dicomstack)
+        cstd = np.std(path_int)
+        if cstd<minstd:
+            minstd = cstd
+            ctm = cts_dcm[ci]
+    return ctm
+
+
+from src.mindist import multi_min_dist_pred_withinbb
+from src.dcmseg import to_dcm_cord
+#continuous center with predicted bounding box
+def cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, seq, bbprev):
+    DEBUG = 1
+    cts, nms_dist_map_p = multi_min_dist_pred_withinbb(min_dist_cnn, dicomstack[slicei] / np.max(dicomstack[slicei]),
+                                                       bb, 64, 64)
+    # merge multiple ct in the same connected region
+    merge_cts = mergects(nms_dist_map_p[:, :, 0], cts)
+    # convert ct to dicom coordinate
+    cts_dcm = to_dcm_cord(merge_cts, bb)
+
+    if DEBUG:
+        plt.imshow(nms_dist_map_p)
+        plt.show()
+    if len(cts_dcm) == 1:
+        bbx = cts_dcm[0][0]
+        bby = cts_dcm[0][1]
+    elif len(cts_dcm) > 1:
+        # first slice use min to the center
+        if slicei == seq[0][0]:
+            bbx = cts_dcm[0][0]
+            bby = cts_dcm[0][1]
+        # other slices find minimum int change
+        else:
+            print('multiple', cts_dcm)
+            ctm = ct_with_min_change(bbprev, slicei, cts_dcm)
+            print('ctm', ctm)
+            plt.imshow(croppatch(dicomstack[slicei], ctm[1], ctm[0]))
+            plt.show()
+            bbx = ctm[0]
+            bby = ctm[1]
+    else:
+        print('no cts')
+
+    return bbx, bby
