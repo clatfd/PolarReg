@@ -13,6 +13,8 @@ def get_grad_img(polar_patch):
     sx = ndimage.sobel(polar_patch_gaussian, axis=1, mode='constant')
     polar_grad = np.hypot(sx, sy)
     polar_grad = croppatch(croppatch(polar_grad, 128, 128, 127, 127), 127, 127-OFFX, 128, 128)
+    polar_grad[0] = polar_grad[1]
+    polar_grad[-1] = polar_grad[-2]
     gradimg = polar_grad #/ np.max(polar_grad)
     return gradimg
 

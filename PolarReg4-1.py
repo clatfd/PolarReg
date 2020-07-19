@@ -43,7 +43,7 @@ from src.loader import DBLoader, CaseLoader
 from src.variables import DESKTOPdir, DATADESKTOPdir, MODELDESKTOPdir, taskdir
 from src.db import adddb
 
-taskname = 'PolarReg2-4'
+taskname = 'PolarReg4-1'
 
 if not os.path.exists(taskdir + '/' + taskname):
     os.mkdir(taskdir + '/' + taskname)
@@ -67,7 +67,7 @@ cfg['channel'] = 1
 cfg['G'] = len(get_available_gpus())
 cfg['taskdir'] = taskdir
 cfg['taskname'] = taskname
-cfg['batchsize'] = 64
+cfg['batchsize'] = 24
 cfg['rottimes'] = 4
 cfg['startepoch'] = 0
 
@@ -77,7 +77,7 @@ with open(taskdir + '/dbsep1174.pickle', 'rb') as fp:
 # dbsep is a dict with 'train':['casename-pi'],'val','test'
 dbloader.loadsep(dbsep)
 
-from src.model import buildmodel
+from src.model import resnetmodel
 from keras.models import load_model
 
 modelname = None
@@ -90,7 +90,7 @@ if len(models) > 0:
     cfg['startepoch'] = int(np.max(epochs))
 
 if cfg['G'] == 1:
-    cnn = buildmodel(cfg)
+    cnn = resnetmodel(cfg)
     if modelname is not None:
         # -------------- load the saved model --------------
         cnn.load_weights(taskdir + '/' + taskname + '/' + modelname)
@@ -99,13 +99,13 @@ if cfg['G'] == 1:
 else:
     with tf.device('/cpu:0'):
         # initialize the model
-        s_cnn = buildmodel(cfg)
+        s_cnn = resnetmodel(cfg)
         if modelname is not None:
             s_cnn.load_weights(taskdir + '/' + taskname + "/" + modelname)
             print("loaded G=", cfg['G'], modelname)
-
-        s_cnn.load_weights(taskdir + '/PolarReg2-2/Epo755-0.00829-0.83358.hdf5')
-        print("loaded G=", cfg['G'], 'PolarReg2-2/Epo755-0.00829-0.83358.hdf5')
+        else:
+            print("loaded G=", cfg['G'],  taskname + '/UnetRGB14-1/Epo313-0.00842-0.86465.hdf5')
+            s_cnn.load_weights(taskdir + '/' + taskname + '/UnetRGB14-1/Epo313-0.00842-0.86465.hdf5')
 
     # make the model parallel
     cnn = multi_gpu_model(s_cnn, gpus=cfg['G'])

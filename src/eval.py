@@ -3,6 +3,7 @@ import pickle
 import matplotlib.pyplot as plt
 import cv2
 import os
+from scipy.interpolate import interp1d
 
 def DSC(labelimg,predict_img_thres):
     A = labelimg>0.5*np.max(labelimg)
@@ -28,6 +29,35 @@ def diffmap(A,B):
                 diffmap[i,j,0] = 1
     return diffmap
 
+def evalthickness(polar_contour_in,polar_contour_out,SCALE=4):
+    thickness = polar_contour_out - polar_contour_in
+    return np.mean(thickness),np.max(thickness),np.min(thickness),np.std(thickness)
+
+from scipy.spatial.distance import directed_hausdorff
+def cal_hausdorff_distance(cont1,cont2):
+    return max(directed_hausdorff(cont1,cont2)[0],directed_hausdorff(cont1,cont2)[0])
+
+def cal_degree_of_similarity(polarct, polarctgt, res=1):
+    Nsamples = 100
+
+    f1 = interp1d(np.arange(len(polarct)), [i[0] for i in polarct])
+    f1gt = interp1d(np.arange(len(polarctgt)), [i[0] for i in polarctgt])
+    xnew = []
+    for i in range(Nsamples):
+        xnew.append(i / Nsamples * len(polarct))
+    intpolarct = f1(xnew)
+    intpolarctgt = f1gt(xnew)
+    difpolarct = abs(intpolarct - intpolarctgt)
+    errctl = sum(difpolarct > res )
+
+    f2 = interp1d(np.arange(len(polarct)), [i[1] for i in polarct])
+    f2gt = interp1d(np.arange(len(polarctgt)), [i[1] for i in polarctgt])
+
+    intpolarct = f2(xnew)
+    intpolarctgt = f2gt(xnew)
+    difpolarct = abs(intpolarct - intpolarctgt)
+    errctw = sum(difpolarct > res )
+    return (Nsamples - errctl) / Nsamples, (Nsamples - errctw) / Nsamples
 
 class Evalresult():
     def __init__(self, eval_result_filename=None):
@@ -62,31 +92,43 @@ class Evalresult():
                 slicenames.append(slicei)
         return dscs, slicenames
 
-    @property
-    def meanet(self):
-        ets = []
-        for ei in self.result:
-            for slicei in self.result[ei]:
-                ets.append(self.result[ei][slicei]['et'])
-        return np.mean(ets)
 
-    #mean abs difference of predciton center
-    @property
-    def meanad(self):
-        mads = []
+    def listmetric(self,metricname):
+        vals = {}
         for ei in self.result:
+            vals[ei] = {}
             for slicei in self.result[ei]:
-                mads.append(self.result[ei][slicei]['mad'])
-        return np.mean(mads)
+                vals[ei][slicei] = []
+                if metricname in self.result[ei][slicei]:
+                    if self.result[ei][slicei][metricname] is None:
+                        continue
+                    vals[ei][slicei] = self.result[ei][slicei][metricname]
+        return vals
 
-    @property
-    def missnum(self):
-        mnum = 0
+    def arraymetric(self,metricname):
+        vals = []
         for ei in self.result:
             for slicei in self.result[ei]:
-                if 'miss' in self.result[ei][slicei]:
-                    mnum += 1
-        return mnum
+                if metricname in self.result[ei][slicei]:
+                    if self.result[ei][slicei][metricname] is None:
+                        continue
+                    vals.append(self.result[ei][slicei][metricname])
+        return vals
+
+    def meanmetric(self,metricname):
+        vals = self.arraymetric(metricname)
+        return np.mean(vals)
+
+    def summetric(self,metricname):
+        vals = 0
+        for ei in self.result:
+            for slicei in self.result[ei]:
+                if metricname in self.result[ei][slicei]:
+                    vals += 1
+        return vals
+
+    def et(self):
+        return '%.3f±%.3f' % (np.mean(self.arraymetric('et')), np.std(self.arraymetric('et')))
 
     def load(self):
         if os.path.exists(self.eval_result_filename):
@@ -146,13 +188,14 @@ class Evalresult():
 from src.UTL import croppatch
 from src.polarutil import plotct
 class SegResult():
-    def __init__(self, predname, examname, dicomstack):
+    def __init__(self, predname, examname, dicomstack, load = True):
         self.predname = predname
         self.examname = examname
         self.dicomstack = dicomstack
 
         segpath = self.predname + '/' + self.examname + '/' + self.examname + '-segresult.pickle'
-        if os.path.exists(segpath):
+        print(segpath)
+        if load == True and os.path.exists(segpath):
             with open(segpath, 'rb') as fp:
                 self.seg = pickle.load(fp)
             print('load from', segpath)
@@ -164,20 +207,25 @@ class SegResult():
             self.seg['polarcst'] = {'lumen': [None for i in range(len(dicomstack))],
                                      'wall': [None for i in range(len(dicomstack))]}
             self.seg['segct'] = [None for i in range(len(dicomstack))]
+            self.seg['nmsct'] = [None for i in range(len(dicomstack))]
 
     def setdcmpath(self,dcmpath):
         self.dcmpath = dcmpath
 
-    def addconts(self,slicei,contours,polarconsistency):
+    def addconts(self,slicei,contours,polarconsistency=None):
         if slicei<0 or slicei>=len(self.dicomstack):
             print('slicei invalid',slicei)
         self.seg['cartcont']['lumen'][slicei] = contours[0]
         self.seg['cartcont']['wall'][slicei] = contours[1]
-        self.seg['polarcst']['lumen'][slicei] = polarconsistency[0]
-        self.seg['polarcst']['wall'][slicei] = polarconsistency[1]
+        if polarconsistency is not None:
+            self.seg['polarcst']['lumen'][slicei] = polarconsistency[0]
+            self.seg['polarcst']['wall'][slicei] = polarconsistency[1]
 
     def addcts(self,slicei,cts):
         self.seg['segct'][slicei] = cts
+
+    def add_nms_cts(self,slicei,cts):
+        self.seg['nmsct'][slicei] = cts
 
     def additem(self,slicei,item,value):
         if item not in self.seg:
@@ -245,3 +293,15 @@ class SegResult():
             caseconts[slicei, 0] = self.seg['cartcont']['lumen'][slicei]
             caseconts[slicei, 1] = self.seg['cartcont']['wall'][slicei]
         return caseconts
+
+    def find_closest_cont_id(self, sid):
+        caseconts = self.to_case_conts()
+        for ni in range(len(caseconts)):
+            nid = sid - ni
+            if nid > 0 and np.max(np.array(caseconts[nid][0])) != 0:
+                return nid
+            nid = sid + ni
+            if nid < len(caseconts) and np.max(np.array(caseconts[nid][0])) != 0:
+                return nid
+        print('no cont can be found')
+        return None

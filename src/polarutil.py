@@ -27,7 +27,6 @@ def batch_polar_rot(polararr,offset):
 #from polar contour to cart contour
 def toctbd(polarbd,ctx,cty):
     # height, in/out bd, x/y pos
-    ctbd = np.zeros((polarbd.shape[0], 2, 2))
     contour1 = []
     contour2 = []
     for offi in range(polarbd.shape[0]):
@@ -89,19 +88,20 @@ def polarpredimg(polarpatch,config,polarmodel):
     # print(pts[height-1+imgpad],np.mean(pts[height-1+imgpad]))
     return pred_img_c, pred_contour_c
 
-
+from src.grad import get_grad_img
+import copy
 # rotate patch and predict polar cont along with consistency in rotated patches
-def polar_pred_cont_cst(polarpatch,config,polarmodel,gap=10,bioutput=False):
+def polar_pred_cont_cst(polarpatch,config,polarmodel,gap=10,bioutput=False,usegrad=False):
+    DEBUG = 0
     patchheight = config['patchheight']
     width = config['width']
     depth = config['depth']
     channel = config['channel']
-
     totalheight = config['height']
 
     # result patch
     # pred_batch_img = np.zeros((totalheight,width,depth,2))
-    #pred_batch_num = np.zeros((totalheight))
+    pred_batch_num = np.zeros((totalheight))
     pred_batch_ctlist = [[] for i in range(totalheight)]
 
     polarpatchpad = np.zeros((totalheight + patchheight, width, depth, channel))
@@ -120,24 +120,53 @@ def polar_pred_cont_cst(polarpatch,config,polarmodel,gap=10,bioutput=False):
     else:
         predct_batch = polarmodel.predict(np.array(test_patch_batch))
 
-    for bi in range(len(predct_batch)):
-        offi = bi * gap
-        # print(offi%totalheight,(offi+patchheight-1)%totalheight)
-        # pred_batch_img[totalheight-offi:] += predimg_batch[bi][:offi]
-        # pred_batch_num[totalheight-offi:] += 1
-        # pred_batch_img[:totalheight-offi] += predimg_batch[bi][offi:]
-        # pred_batch_num[:totalheight-offi] += 1
-        for slicei in range(patchheight):
-            pred_batch_ctlist[(offi + slicei) % totalheight].append(predct_batch[bi][slicei])
+    if usegrad == True:
+        polargrad  = get_grad_img(polarpatch[:,:,1,0])
+
+        for bi in range(len(predct_batch)):
+            offi = bi * gap
+            for slicei in range(patchheight):
+                weight = polargrad[(offi + slicei) % totalheight,int(round(predct_batch[bi][slicei][0]*width))]
+                #print(bi,(offi + slicei) % totalheight,int(round(predct_batch[bi][slicei][0]*width)),weight)
+                pred_batch_ctlist[(offi + slicei) % totalheight].append(predct_batch[bi][slicei]*weight)
+                pred_batch_num[(offi + slicei) % totalheight] += weight
+    else:
+        for bi in range(len(predct_batch)):
+            offi = bi * gap
+            # print(offi%totalheight,(offi+patchheight-1)%totalheight)
+            # pred_batch_img[totalheight-offi:] += predimg_batch[bi][:offi]
+            # pred_batch_num[totalheight-offi:] += 1
+            # pred_batch_img[:totalheight-offi] += predimg_batch[bi][offi:]
+            # pred_batch_num[:totalheight-offi] += 1
+
+            for slicei in range(patchheight):
+                pred_batch_ctlist[(offi + slicei) % totalheight].append(predct_batch[bi][slicei])
 
     # pred_img = np.zeros((totalheight,width,depth,2))
     pred_contour = np.zeros((totalheight, 2))
     pred_contour_sd = np.zeros((totalheight, 2))
+
+    if usegrad == True:
+        polargraddsp = copy.copy(polargrad)
+        polarpatchdsp = polarpatch[:, :, 1, 0]
+
     for offi in range(totalheight):
         # pred_img[offi] = pred_batch_img[offi]/pred_batch_num[offi]
-        pred_contour[offi] = np.mean(pred_batch_ctlist[offi], axis=0) * width
+        if usegrad == True:
+            #print(offi,np.sum(pred_batch_ctlist[offi], axis=0), pred_batch_num[offi])
+            pred_contour[offi] = np.sum(pred_batch_ctlist[offi], axis=0)/pred_batch_num[offi] * width
+            polargraddsp[offi,int(round(pred_contour[offi][0]))] = np.max(polargraddsp)
+            polarpatchdsp[offi,int(round(pred_contour[offi][0]))] = np.max(polarpatchdsp)
+        else:
+            pred_contour[offi] = np.mean(pred_batch_ctlist[offi], axis=0) * width
         # std dev for uniform distribution in range 0-1 is (1-0)/sqrt(12)
         pred_contour_sd[offi] = np.std(pred_batch_ctlist[offi], axis=0) * np.sqrt(12)
+
+    if DEBUG==1 and usegrad == True:
+        plt.imshow(polargraddsp)
+        plt.show()
+        plt.imshow(polarpatchdsp)
+        plt.show()
 
     # print('batch',len(predimg_batch))
     # print([(i,pred_batch_num[i]) for i in range(len(pred_batch_num))])
@@ -146,6 +175,7 @@ def polar_pred_cont_cst(polarpatch,config,polarmodel,gap=10,bioutput=False):
     # print([pred_batch_ctlist[0][i][0] for i in range(len(pred_batch_ctlist[0]))])
     # print([pred_batch_ctlist[-1][i][0] for i in range(len(pred_batch_ctlist[-1]))])
     return pred_contour, pred_contour_sd
+
 
 def plotct(sz, contourin, contourout):
     imgmask = np.zeros((sz, sz), dtype=np.uint8)
@@ -191,7 +221,7 @@ def polar_plot(polar_plot_name,cart_patch,cart_label,polarbd,cart_seg,
     plt.title('Prediction \nDSC:%.3f' % (DSC(cart_seg, cart_label)), fontsize=fz)
     plt.imshow(diffmap(cart_seg, cart_label), cmap='gray')
     plt.subplot(2, 5, 4)
-    plt.title('U-net Prediction \nDSC:%.3f' % (DSC(cart_unet, cart_label)), fontsize=fz)
+    plt.title('U-Net Prediction \nDSC:%.3f' % (DSC(cart_unet, cart_label)), fontsize=fz)
     plt.imshow(diffmap(cart_unet, cart_label), cmap='gray')
     plt.subplot(2, 5, 5)
     plt.title('Mask-RCNN Prediction \nDSC:%.3f' % (DSC(cart_mask, cart_label)), fontsize=fz)
@@ -206,19 +236,22 @@ def polar_plot(polar_plot_name,cart_patch,cart_label,polarbd,cart_seg,
     plt.subplot(2, 5, 8)
     plt.title('Polar Prediction', fontsize=fz)
     plt.xlim([0, 256])
-    plt.ylim([256, 0])
-    plt.plot(polarbd[:, 0], np.arange(256), label='Lumen')
-    plt.plot(polarbd[:, 1], np.arange(256), label='Wall')
+    plt.ylim([polarbd.shape[0], 0])
+    plt.plot(polarbd[::4, 0], np.arange(0,polarbd.shape[0],4), 'o', markersize=2, label='Lumen')
+    plt.plot(polarbd[::4, 1], np.arange(0,polarbd.shape[0],4), 'o', markersize=2,  label='Wall')
     plt.legend()
 
     # fig.tight_layout()
-    plt.savefig(polar_plot_name)
-    #plt.show()
+    if polar_plot_name is not None:
+        plt.savefig(polar_plot_name)
+    else:
+        plt.show()
     plt.close()
 
 def tocordpolar(cartcord, octx, octy, rsamples=256, thsamples=256):
-    polarcords = np.zeros((len(cartcord), 2))
-    deg = 360 / thsamples
+    thetas = []
+    rhostheta = {}
+
     for pti in range(len(cartcord)):
         wx = cartcord[pti][0] - octx
         hy = cartcord[pti][1] - octy
@@ -228,22 +261,22 @@ def tocordpolar(cartcord, octx, octy, rsamples=256, thsamples=256):
             cth = (360 + cth)
         else:
             cth = (cth)
-        polarcords[pti] = [cth, crho]
+        thetas.append(cth)
+        rhostheta[cth] = crho
+
+    thetas = np.sort(thetas)
 
     # add last first degree outside 0-360 to allow full range of interp from 0-360
-    polarcordsfl = list(polarcords.copy())
-    idxmax = np.argmax(polarcords[:, 0])
-    maxdeg = polarcords[idxmax].copy()
-    maxdeg[0] = maxdeg[0] - 360
-    polarcordsfl.append(maxdeg)
-    idxmin = np.argmin(polarcords[:, 0])
-    mindeg = polarcords[idxmin].copy()
-    mindeg[0] = mindeg[0] + 360
-    polarcordsfl.append(mindeg)
-    polarcordsfl = np.array(polarcordsfl)
+    thetas_add = [np.max(thetas)-360]
+    rhostheta[np.max(thetas)-360] = rhostheta[np.max(thetas)]
+    thetas_add.extend(copy.copy(thetas))
+    thetas_add.append(np.min(thetas)+360)
+    rhostheta[np.min(thetas) + 360] = rhostheta[np.min(thetas)]
+    rhos_add = [rhostheta[t] for t in thetas_add]
 
-    f1 = interp1d(polarcordsfl[:, 0], polarcordsfl[:, 1])
-    interprho = f1(np.arange(thsamples) * 360 / thsamples)
+    f1 = interp1d(thetas_add, rhos_add)
+    step = 360 / thsamples
+    interprho = f1(np.arange(thsamples) * step)
     return interprho
 
 
@@ -263,12 +296,12 @@ def pred_polar_ct_rot(cnn,cartstackrz,cfg):
         cartstackrz = np.rot90(cartstackrz)
         cartstackrzbatch[roti] = cartstackrz
     polarcts = cnn.predict(cartstackrzbatch[...,None])*256
-    polar_bd_array = np.zeros((256,2,rots))
+    polar_bd_array = np.zeros((cfg['patchheight'],2,rots))
     for roti in range(rots):
         polarrot = polarcts[roti]
         polarrot_o = np.concatenate([polarrot[-256//rots*roti:],polarrot[:-256//rots*roti]])
         polar_bd_array[:,:,roti] = polarrot_o
-        contourin,contourout = toctbd(polarcts[roti],cfg['patchheight'],cfg['patchheight'])
+        contourin,contourout = toctbd(polarcts[roti],cfg['height'],cfg['height'])
         cart_vw_seg = plotct(512,contourin,contourout)
         if FIG:
             plt.subplot(1,2,1)
@@ -292,3 +325,14 @@ def batch_cart_rot(xarray,yarray,rotsarr):
         xarray_off[i] = xrot
         yarray_off[i] = yrot
     return xarray_off, yarray_off
+
+def resamplecont(cont,resamplesize):
+    f1 = interp1d(np.arange(len(cont)),cont)
+    interprho = f1(np.arange(resamplesize)*len(cont)/resamplesize)
+    return interprho
+
+def resampleconts(conts,resamplesize):
+    resampleconts = np.zeros((resamplesize,2))
+    resampleconts[:,0] = resamplecont(conts[:,0], resamplesize)
+    resampleconts[:,1] = resamplecont(conts[:,1], resamplesize)
+    return resampleconts

@@ -43,7 +43,7 @@ from src.loader import DBLoader, CaseLoader
 from src.variables import DESKTOPdir, DATADESKTOPdir, MODELDESKTOPdir, taskdir
 from src.db import adddb
 
-taskname = 'PolarReg2-4'
+taskname='CartSeg1-1'
 
 if not os.path.exists(taskdir + '/' + taskname):
     os.mkdir(taskdir + '/' + taskname)
@@ -59,15 +59,15 @@ for dbname in dbnames:
     adddb(dbloader, dbname)
 
 cfg = {}
-cfg['width'] = 256
-cfg['height'] = 256
-cfg['patchheight'] = 256
+cfg['width'] = 512
+cfg['height'] = 512
+cfg['patchheight'] = 512
 cfg['depth'] = 3
 cfg['channel'] = 1
 cfg['G'] = len(get_available_gpus())
 cfg['taskdir'] = taskdir
 cfg['taskname'] = taskname
-cfg['batchsize'] = 64
+cfg['batchsize'] = 8
 cfg['rottimes'] = 4
 cfg['startepoch'] = 0
 
@@ -77,7 +77,7 @@ with open(taskdir + '/dbsep1174.pickle', 'rb') as fp:
 # dbsep is a dict with 'train':['casename-pi'],'val','test'
 dbloader.loadsep(dbsep)
 
-from src.model import buildmodel
+from src.model import Unet3D
 from keras.models import load_model
 
 modelname = None
@@ -90,7 +90,7 @@ if len(models) > 0:
     cfg['startepoch'] = int(np.max(epochs))
 
 if cfg['G'] == 1:
-    cnn = buildmodel(cfg)
+    cnn = Unet3D(cfg)
     if modelname is not None:
         # -------------- load the saved model --------------
         cnn.load_weights(taskdir + '/' + taskname + '/' + modelname)
@@ -99,20 +99,21 @@ if cfg['G'] == 1:
 else:
     with tf.device('/cpu:0'):
         # initialize the model
-        s_cnn = buildmodel(cfg)
+        s_cnn = Unet3D(cfg)
         if modelname is not None:
             s_cnn.load_weights(taskdir + '/' + taskname + "/" + modelname)
             print("loaded G=", cfg['G'], modelname)
 
-        s_cnn.load_weights(taskdir + '/PolarReg2-2/Epo755-0.00829-0.83358.hdf5')
-        print("loaded G=", cfg['G'], 'PolarReg2-2/Epo755-0.00829-0.83358.hdf5')
+        #s_cnn.load_weights(taskdir + '/PolarReg2-1/finalmodel.hdf5')
+        #print("loaded G=", cfg['G'], 'PolarReg2-1/finalmodel.hdf5')
+
+        cnn = multi_gpu_model(s_cnn, gpus=cfg['G'])
 
     # make the model parallel
     cnn = multi_gpu_model(s_cnn, gpus=cfg['G'])
     # s_cnn.summary()
 
-from src.loss import polarloss
-cnn.compile(optimizer=keras.optimizers.Adam(lr=1e-5), loss=polarloss)  # dice_coef_loss
+cnn.compile(optimizer=keras.optimizers.Adam(lr=1e-5), loss='binary_crossentropy')  # dice_coef_loss
 print('cnn test', cnn.predict(np.zeros((cfg['G'], cfg['height'], cfg['width'], cfg['depth'], cfg['channel'])))[0].shape)
 
 from src.polarutil import batch_polar_rot
@@ -158,7 +159,7 @@ def threadsafe_generator(f):
 @threadsafe_generator
 def data_generator(config, exams, aug):
     xarray = np.zeros([config['batchsize'], config['height'], config['width'], config['depth'], config['channel']])
-    yarray = np.zeros([config['batchsize'], config['patchheight'], 2])
+    yarray = np.zeros([config['batchsize'], config['height'], config['width'], 1, 1])
     bi = 0
     while 1:
         for ei in exams:
@@ -169,42 +170,24 @@ def data_generator(config, exams, aug):
                     continue
 
                 #load center patch
-                polarstack = caseloader.loadstack(slicei, 'polar_patch', nei=config['depth'] // 2)
-                if polarstack is None:
-                    # print('skip',caseloader,slicei)
-                    continue
-                polarcont = caseloader.loadstack(slicei, 'polar_cont', nei=config['depth'] // 2)
-                polar_cont_center = polarcont[:, :, config['depth'] // 2]
-                xarray[bi] = polarstack[..., None]
-                yarray[bi] = polar_cont_center
+                xarray[bi] = caseloader.loadstack(slicei, 'cart_patch')[:, :, :, None]
+                yarray[bi] = caseloader.load_cart_vw(slicei)[:, :, None, None]
                 bi += 1
                 if bi == config['batchsize']:
                     bi = 0
-                    if aug == True:
-                        for offi in random.sample(range(config['height']), config['rottimes']):
-                            xarray_off = batch_polar_rot(xarray, offi)
-                            yarray_off = batch_polar_rot(yarray, offi)
-                            yield (xarray_off, yarray_off)
-                    else:
-                        yield (xarray, yarray)
+                    yield (xarray, yarray)
 
-                #load aug patch
-                aug_polar_patch_batch = caseloader.load_aug_patch(slicei, 'polar_patch')
-                aug_polar_cont_batch = caseloader.load_aug_patch(slicei, 'polar_cont')
+                # load aug patch
+                aug_cart_patch_batch = caseloader.load_aug_patch(slicei, 'cart_patch')
+                aug_cart_label_batch = caseloader.load_aug_patch(slicei, 'cart_label')
 
-                for augi in range(len(aug_polar_patch_batch)):
-                    xarray[bi] = aug_polar_patch_batch[augi, :, :, :, None]
-                    yarray[bi] = aug_polar_cont_batch[augi]
+                for augi in range(len(aug_cart_patch_batch)):
+                    xarray[bi] = aug_cart_patch_batch[augi, :, :, :, None]
+                    yarray[bi] = aug_cart_label_batch[augi][:, :, None, None]
                     bi += 1
                     if bi == config['batchsize']:
                         bi = 0
-                        if aug == True:
-                            for offi in random.sample(range(config['height']), config['rottimes']):
-                                xarray_off = batch_polar_rot(xarray, offi)
-                                yarray_off = batch_polar_rot(yarray, offi)
-                                yield (xarray_off, yarray_off)
-                        else:
-                            yield (xarray, yarray)
+                        yield (xarray, yarray)
 
 
 from src.polarutil import toctbd, polarpredimg, polar_pred_cont_cst, plotct, plotpolar
@@ -215,9 +198,9 @@ def get_val_dice(cnn, config):
     val_dsc = []
     taskdir = cfg['taskdir']
     # load array from selected val to test dsc and compare with cart vw label
-    if os.path.exists(taskdir + '/valarray.npy'):
-        xarray_val = np.load(taskdir + '/valarray.npy')
-        xlabel_val = np.load(taskdir + '/vallabel.npy')
+    if os.path.exists(taskdir + '/valarray_cart.npy'):
+        xarray_val = np.load(taskdir + '/valarray_cart.npy')
+        xlabel_val = np.load(taskdir + '/vallabel_cart.npy')
     else:
         val_exams = dbloader.list_exams('val', shuffle=False)
         xarray_val = []
@@ -239,22 +222,17 @@ def get_val_dice(cnn, config):
         xarray_val = np.array(xarray_val)
         xlabel_val = np.array(xlabel_val)
         print(xarray_val.shape, xlabel_val.shape)
-        np.save(taskdir + '/valarray.npy', xarray_val)
-        np.save(taskdir + '/vallabel.npy', xlabel_val)
+        np.save(taskdir + '/valarray.npy_cart', xarray_val)
+        np.save(taskdir + '/vallabel.npy_cart', xlabel_val)
 
     xarray_val_rz = []
     for i in range(xarray_val.shape[0]):
         xarray_val_rz.append(xarray_val[i, :, :, :, 0])
     xarray_val_rz = np.array(xarray_val_rz)[..., None]
-    polarbd_all = cnn.predict(xarray_val_rz, batch_size=config['G'] * config['batchsize'])
+    cart_pred_all = cnn.predict(xarray_val_rz, batch_size=config['G'] * config['batchsize'])
     for ti in range(xarray_val.shape[0]):
         carlabel = xlabel_val[ti]
-        # carlabel = cv2.resize(carlabel,(256,256))
-        polarimg = xarray_val_rz[ti]
-        polarbd = polarbd_all[ti] * config['width']
-        # polarprob = polarprobr[:,:,0,1]-polarprobr[:,:,0,0]
-        contourin, contourout = toctbd(polarbd, config['height'], config['height'])
-        carseg = plotct(512, contourin, contourout)
+        carseg = cart_pred_all[ti, :, :, 0, 0] > 0.5*np.max(cart_pred_all[ti, :, :, 0, 0])
         cdsc = DSC(carlabel, carseg)
         val_dsc.append(cdsc)
 
@@ -331,8 +309,8 @@ if cfg['G'] == 1:
     callbacklist.append(
         ModelCheckpoint(weightspath, monitor='val_loss', period=1, verbose=1, save_best_only=True, mode='min'))
 
-trainsteps = int(round(dbloader.exams * 15 * cfg['rottimes'] // cfg['batchsize'] * 0.8)) // 40
-valsteps = int(round(dbloader.exams * 15 // cfg['batchsize'] * 0.2)) // 20
+trainsteps = int(round(dbloader.exams*15//cfg['batchsize']*0.8))//100
+valsteps = int(round(dbloader.exams*15//cfg['batchsize']*0.2))//80
 print('trainsteps,valsteps', trainsteps, valsteps)
 
 traingen = data_generator(cfg, train_exam_ids, 1)

@@ -8,6 +8,7 @@ import cv2
 from src.variables import DATADESKTOPdir
 from src.BB import BB
 import matplotlib.pyplot as plt
+from src.UTL import croppatch
 
 class DBLoader():
 	def __init__(self,pilist=None):
@@ -142,8 +143,12 @@ class CaseLoader():
 		self.pi = self.caselist['pi']
 		self.ei = self.caselist['ei']
 		self.side = self.caselist['side']
+		if self.caselist['pjname']=='knee_artery_analysis':
+			self.art = 'Knee'
+		else:
+			self.art = 'Carotid'
 		self.targetprefix = DATADESKTOPdir+'/DVWIMAGES/'
-		self.targetdir = self.targetprefix+'casepatch/Carotid/'+self.pjname+'/'
+		self.targetdir = self.targetprefix+'casepatch/'+self.art+'/'+self.pjname+'/'
 		if 'dcmprefix' in self.caselist:
 			self.dcmprefix = self.caselist['dcmprefix']
 		else:
@@ -232,7 +237,7 @@ class CaseLoader():
 			return False
 		if 'patch' not in self.caselist['slices'][slicei]:
 			return False
-		if self.caselist['slices'][slicei]['IQ'] in [0,1]:
+		if self.caselist['slices'][slicei]['IQ'] in [-1,0,1]:
 			return False
 		return True
 
@@ -296,7 +301,7 @@ class CaseLoader():
 	def load_cart_min_dist_dirs(self,slicei):
 		if not self.valid_slicei(slicei):
 			return None
-		min_dist_filename = DATADESKTOPdir+'/DVWIMAGES/casepatch/Carotid/'+self.pjname+'/dist/'+self.slicename(slicei)+'.npy'
+		min_dist_filename = DATADESKTOPdir+'/DVWIMAGES/casepatch/'+self.art+'/'+self.pjname+'/dist/'+self.slicename(slicei)+'.npy'
 		if not os.path.exists(min_dist_filename):
 			print('no exist mindist',DATADESKTOPdir,min_dist_filename)
 			return None
@@ -393,8 +398,19 @@ class CaseLoader():
 			aug_filename = self.caselist['slices'][slicei]['augpatch']['cartpatchbatchname']
 		elif type=='polar_cont':
 			aug_filename = self.caselist['slices'][slicei]['augpatch']['polarcoutbatchname']
+		elif type == 'cart_label':
+			aug_offs = self.load_aug_off(slicei)
+			cart_label_vw = self.load_cart_vw(slicei)
+			cart_label_vw_aug_batch = []
+			for augi in range(len(aug_offs)):
+				ctx = aug_offs[augi][0]
+				cty = aug_offs[augi][1]
+				cart_label_vw_aug = croppatch(cart_label_vw, 256 + cty, 256 + ctx, 256, 256)
+				cart_label_vw_aug_batch.append(cart_label_vw_aug)
+			return cart_label_vw_aug_batch
 		else:
 			print('unknown type')
+			return
 		aug_filename = self.targetprefix + aug_filename
 		if not os.path.exists(aug_filename):
 			print('no aug polar patch file', aug_filename)
@@ -422,14 +438,14 @@ class CaseLoader():
 			return None
 		maxslicei = np.max(list(self.caselist['slices'].keys()))
 		maxsid = self.caselist['slices'][maxslicei]['sid']['S101']
-		gttracklet = np.zeros((maxsid, 2))
+		gttracklet = [[] for i in range(maxsid)]
 		for slicei in self.caselist['slices']:
 			if not self.valid_slicei(slicei):
 				continue
-			self.caselist['slices'][slicei]['patch']
 			csid = self.getsid(slicei)
-			gttracklet[csid][0] = self.caselist['slices'][slicei]['patch']['ctofx']/4
-			gttracklet[csid][1] = self.caselist['slices'][slicei]['patch']['ctofy']/4
+			gtbb = self.load_gt_bb(slicei)
+			gtbb.c = 1
+			gttracklet[csid].append(gtbb)
 		return gttracklet
 
 	def load_gt_bb(self,slicei):
@@ -437,11 +453,10 @@ class CaseLoader():
 			return None
 		ctx = self.caselist['slices'][slicei]['patch']['ctofx']/4
 		cty = self.caselist['slices'][slicei]['patch']['ctofy']/4
-		xmin = ctx - self.load_polar_cont(slicei)[0][1] * 64
-		xmax = ctx + self.load_polar_cont(slicei)[128][1] * 64
-		ymax = cty + self.load_polar_cont(slicei)[64][1] * 64
-		ymin = cty - self.load_polar_cont(slicei)[192][1] * 64
-		return BB.fromminmax(xmin, xmax, ymin, ymax)
+		w = self.load_polar_cont(slicei)[0][1] * 64 + self.load_polar_cont(slicei)[128][1] * 64
+		h = self.load_polar_cont(slicei)[64][1] * 64 + self.load_polar_cont(slicei)[192][1] * 64
+
+		return BB(ctx,cty,w,h)
 
 	def getsid(self,slicei):
 		if not self.valid_slicei(slicei):
@@ -455,7 +470,8 @@ class CaseLoader():
 		plt.figure(figsize=(5, 5))
 		plt.xlim([0, 256])
 		plt.ylim([256, 0])
-		plt.plot(polarct[:, 0], np.arange(256), label='Lumen')
-		plt.plot(polarct[:, 1], np.arange(256), label='Wall')
+		plt.plot(polarct[::4, 0], np.arange(0, 256, 4), 'o', markersize=2, label='Lumen')
+		plt.plot(polarct[::4, 1], np.arange(0, 256, 4), 'o', markersize=2, label='Wall')
 		plt.legend()
 		plt.show()
+

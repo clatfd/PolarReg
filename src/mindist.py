@@ -84,7 +84,7 @@ def find_nms_center(dist_map, fig=0):
         nms_dist_map_p = np.zeros((nms_dist_map.shape[0], nms_dist_map.shape[1], 3), dtype=np.uint8)
         nms_dist_map_p[:, :, 0] = dist_map / np.max(dist_map) * 255
 
-    thres = np.max(nms_dist_map) * 0.8
+    thres = np.max(nms_dist_map) * 0.5
     nz = np.where(dist_map > thres)
     min_ct_dist_thres = 40
     nms_centers = {}
@@ -100,9 +100,9 @@ def find_nms_center(dist_map, fig=0):
                 eptx = int(cti.split('-')[0])
                 epty = int(cti.split('-')[1])
                 ethres = nms_centers[cti]
-                if pow(eptx - ptx, 2) + pow(eptx - ptx, 2) < pow(min_ct_dist_thres, 2):
+                if pow(eptx - ptx, 2) + pow(epty - pty, 2) < pow(min_ct_dist_thres, 2):
                     if ethres > mn:
-                        print(ptx, pty, mn, 'smaller than', cti, ethres)
+                        #print(ptx, pty, mn, 'smaller than', cti, ethres)
                         has_nei_ct_higher = True
                     else:
                         nms_centers['%d-%d' % (ptx, pty)] = mn
@@ -126,6 +126,51 @@ def find_nms_center(dist_map, fig=0):
     else:
         return nms_centers
 
+def find_con_region(dist_map, fig=0):
+    DEBUG = 0
+    nms_dist_map = copy.copy(dist_map)
+    nms_dist_map = gaussian_filter(nms_dist_map, sigma=3)
+    if fig:
+        nms_dist_map_p = np.zeros((nms_dist_map.shape[0], nms_dist_map.shape[1], 3), dtype=np.uint8)
+        nms_dist_map_p[:, :, 0] = dist_map / np.max(dist_map) * 255
+
+    # connected region
+    nms_dist_map_int = (nms_dist_map / np.max(nms_dist_map) * 255).astype(np.uint8)
+    ret, thresh = cv2.threshold(nms_dist_map_int, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    connectivity = 4
+    output = cv2.connectedComponentsWithStats(thresh, connectivity, cv2.CV_32S)
+    # The first cell is the number of labels
+    num_labels = output[0]
+    # The second cell is the label matrix
+    complabel = output[1]
+    # The third cell is the stat matrix
+    stats = output[2]
+    if DEBUG:
+        plt.imshow(complabel)
+        plt.colorbar()
+        plt.show()
+    # map from label id to bb around component
+    component_bbs = []
+    for pti in range(num_labels):
+        if pti == complabel[0, 0]:
+            continue
+        component_pixels = stats[pti, -1]
+        if component_pixels < 100:
+            #print('connected region', component_pixels,'ignore')
+            continue
+        cbb = find_component_bb(complabel, pti, nms_dist_map)
+        component_bbs.append(cbb)
+    if fig:
+        for cti in component_bbs:
+            ptx = int(round(cti.x))
+            pty = int(round(cti.y))
+            nms_dist_map_p[pty - 5:pty + 6, ptx - 1:ptx + 2, 1] = 255
+            nms_dist_map_p[pty - 1:pty + 2, ptx - 5:ptx + 6, 1] = 255
+    if fig:
+        nms_dist_map_p[:,:,2] = complabel
+        return component_bbs, nms_dist_map_p
+    else:
+        return component_bbs
 
 # find center
 def gen_2d_gaussion(size, sigma=1, mu=0):
@@ -140,6 +185,7 @@ def multi_min_dist_map(min_dist_cnn, dicomslice, octy, octx, patchheight, patchw
     search_patch_rz_batch = []
     stride = 10
     rg = 2
+    DEBUG = 0
     for ofi in np.arange(-rg, rg + 1):
         for ofj in np.arange(-rg, rg + 1):
             octyof = octy + ofi * stride
@@ -149,9 +195,9 @@ def multi_min_dist_map(min_dist_cnn, dicomslice, octy, octx, patchheight, patchw
             searchpatchrz = searchpatchrz/np.max(searchpatchrz)
             # searchpatchrz = searchpatch
             search_patch_rz_batch.append(searchpatchrz)
-            # plt.imshow(searchpatchrz)
-            # plt.title('Original Patch'+str(octyof)+str(octxof))
-            # plt.show()
+            '''plt.imshow(searchpatchrz)
+            plt.title('Original Patch'+str(octyof)+str(octxof))
+            plt.show()'''
 
     search_patch_rz_batch = np.array(search_patch_rz_batch)
     min_dist_search_patch_batch = min_dist_cnn.predict(search_patch_rz_batch[:, :, :, None])[:, :, :, 0]
@@ -163,16 +209,21 @@ def multi_min_dist_map(min_dist_cnn, dicomslice, octy, octx, patchheight, patchw
         offpred = croppatch(min_dist_search_patch_batch[i], 256 - ofi * stride * 4, 256 - ofj * stride * 4, 256,
                             256)
         # offpred = croppatch(min_dist_search_patch_batch[i], 256 - ofi * stride, 256 - ofj * stride, 256, 256)
-        '''plt.title('Original Patch'+str(ofi)+str(ofj))
-        plt.imshow(offpred)
-        plt.colorbar()
-        plt.show()
-        print(np.max(offpred))'''
+        if DEBUG:
+            plt.suptitle('Original Patch'+str(ofi)+str(ofj))
+            plt.subplot(1,3,1)
+            plt.imshow(search_patch_rz_batch[i])
+            plt.subplot(1,3,2)
+            plt.imshow(min_dist_search_patch_batch[i])
+            plt.subplot(1,3,3)
+            plt.imshow(offpred)
+            #plt.colorbar()
+            plt.show()
+            print(np.max(offpred))
         min_dist_search_patch.append(offpred / np.max(offpred))
     min_dist_search_patch = np.array(min_dist_search_patch)
     min_dist_search_patch = np.max(min_dist_search_patch, axis=0)
     # plt.imshow(min_dist_search_patch)
-
     return min_dist_search_patch
 
 def multi_min_dist_pred(min_dist_cnn, dicomslice, octy, octx, patchheight, patchwidth, kernelmask=None):
@@ -183,14 +234,16 @@ def multi_min_dist_pred(min_dist_cnn, dicomslice, octy, octx, patchheight, patch
     search_patch_center = croppatch(dicomslice, octy, octx, patchheight, patchwidth)
     search_patch_center_rz = cv2.resize(search_patch_center, (0, 0), fx=4, fy=4)
     # search_patch_center_rz = search_patch_center
-    nms_dist_map_p[:, :, 2] = search_patch_center_rz / np.max(search_patch_center_rz) * 255
+    #print('map max',np.max(search_patch_center_rz))
+    nms_dist_map_p[:, :, 2] = search_patch_center_rz * 255
 
     cts = [[int(i.split('-')[0]), int(i.split('-')[1])] for i in list(dist_pred_ct.keys())]
 
     if len(cts) == 0:
         print('no ct')
     elif len(cts) != 1:
-        print('cts', len(cts))
+        pass
+        #print('cts', len(cts))
     return cts, nms_dist_map_p
 
 def multi_min_dist_pred_withinbb(min_dist_cnn, dicomslice, bb, patchheight, patchwidth):
@@ -203,31 +256,93 @@ def multi_min_dist_pred_withinbb(min_dist_cnn, dicomslice, bb, patchheight, patc
     min_dist_search_patch_rz = fillpatch(np.zeros(min_dist_search_patch.shape),min_dist_search_patch_rz)
     #plt.imshow(min_dist_search_patch_rz)
     #plt.show()
+
+    #all cts
     dist_pred_ct, nms_dist_map_p = find_nms_center(min_dist_search_patch_rz, fig=1)
+    #cts = [[int(i.split('-')[0]), int(i.split('-')[1])] for i in list(dist_pred_ct.keys())]
+
+    nms_dist_map = nms_dist_map_p[:,:,0]
+    #remove cts in unconnected region
+    nms_dist_map_int = (nms_dist_map / np.max(nms_dist_map) * 255).astype(np.uint8)
+    ret, thresh = cv2.threshold(nms_dist_map_int, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    connectivity = 4
+    output = cv2.connectedComponentsWithStats(thresh, connectivity, cv2.CV_32S)
+    # The second cell is the label matrix
+    component_label = output[1]
+    #plt.imshow(component_label)
+    #plt.show()
+
+    center_component_label = component_label[256,256]
+    cts = []
+    for i in dist_pred_ct:
+        if component_label[int(i.split('-')[1]), int(i.split('-')[0])] != center_component_label:
+            #print('ignore unconnected nms ct')
+            continue
+        cts.append([int(i.split('-')[0]), int(i.split('-')[1])])
+
     search_patch_center = croppatch(dicomslice, octy, octx, patchheight, patchwidth)
     search_patch_center_rz = cv2.resize(search_patch_center, (0, 0), fx=4, fy=4)
     # search_patch_center_rz = search_patch_center
     nms_dist_map_p[:, :, 2] = search_patch_center_rz / np.max(search_patch_center_rz) * 255
 
-    cts = [[int(i.split('-')[0]), int(i.split('-')[1])] for i in list(dist_pred_ct.keys())]
-
     if len(cts) == 0:
-        print('no ct')
+        #print('no ct')
+        pass
     elif len(cts) != 1:
-        print('cts', len(cts))
+        pass
+        '''print('cts', len(cts))
+        plt.subplot(1,2,1)
+        plt.title('component_label')
+        plt.imshow(component_label)
+        plt.subplot(1, 2, 2)
+        plt.title('nms_dist_map_p')
+        plt.imshow(nms_dist_map_p)
+        plt.show()'''
     return cts, nms_dist_map_p
 
-def find_component_bb(complabel, labelid):
+def find_component_bb(complabel, labelid, nms_dist_map):
     ypos, xpos = np.where(complabel == labelid)
     xmin = np.min(xpos)
     xmax = np.max(xpos)
     ymin = np.min(ypos)
     ymax = np.max(ypos)
+    mapval = []
+    for i in range(len(ypos)):
+        mapval.append(nms_dist_map[ypos[i],xpos[i]])
+    c = np.mean(mapval)
     #min_dist_prob_region = nms_dist_map_p[ymin:ymax,xmin:xmax]
-    return BB.fromminmax(xmin, xmax, ymin, ymax)
+    return BB.fromminmax(xmin, xmax, ymin, ymax, c, [c])
 
+def multi_min_dist_pred_component(min_dist_cnn, dicomslice, bb, patchheight, patchwidth, kernelmask=None):
+    #min_dist_search_patch = multi_min_dist_map(min_dist_cnn, dicomslice, octy, octx, patchheight, patchwidth)
+    cts, nms_dist_map_p = multi_min_dist_pred_withinbb(min_dist_cnn, dicomslice,bb, 64, 64)
+    min_dist_search_patch = nms_dist_map_p[:, :, 0]
+    if kernelmask is None:
+        kernelmask = gen_2d_gaussion(min_dist_search_patch.shape[0], 0.5)
+    component_bbs, nms_dist_map_p = find_con_region(min_dist_search_patch * kernelmask, fig=1)
+    #prepare output img
+    search_patch_center = croppatch(dicomslice, bb.y, bb.x, patchheight, patchwidth)
+    search_patch_center_rz = cv2.resize(search_patch_center, (0, 0), fx=4, fy=4)
+    # search_patch_center_rz = search_patch_center
+    # print('map max',np.max(search_patch_center_rz))
+    nms_dist_map_p[:, :, 2] = search_patch_center_rz * 255
+    return component_bbs, nms_dist_map_p
 
-# find label id from thresholded miin dist map for nms centers, and bb around each connected component
+def multi_min_dist_pred_component_all(min_dist_cnn, dicomslice, bb, patchheight, patchwidth, kernelmask=None):
+    cts, nms_dist_map_p = multi_min_dist_pred(min_dist_cnn, dicomslice, bb.y, bb.x, 64, 64)
+    min_dist_search_patch = nms_dist_map_p[:, :, 0]
+    if kernelmask is None:
+        kernelmask = gen_2d_gaussion(min_dist_search_patch.shape[0], 0.5)
+    component_bbs, nms_dist_map_p = find_con_region(min_dist_search_patch * kernelmask, fig=1)
+    # prepare output img
+    search_patch_center = croppatch(dicomslice, bb.y, bb.x, patchheight, patchwidth)
+    search_patch_center_rz = cv2.resize(search_patch_center, (0, 0), fx=4, fy=4)
+    # search_patch_center_rz = search_patch_center
+    # print('map max',np.max(search_patch_center_rz))
+    #nms_dist_map_p[:, :, 2] = search_patch_center_rz * 255
+    return component_bbs, nms_dist_map_p
+
+# find label id from thresholded min dist map for nms centers, and bb around each connected component
 def labelcts(nms_dist_map_p, nms_centers):
     ret, thresh = cv2.threshold(nms_dist_map_p, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     connectivity = 4
@@ -241,7 +356,7 @@ def labelcts(nms_dist_map_p, nms_centers):
     for pti in nms_centers:
         component_label_ids.append(complabel[pti[1], pti[0]])
         if complabel[pti[1], pti[0]] not in component_bbs:
-            component_bbs[complabel[pti[1], pti[0]]] = find_component_bb(complabel, complabel[pti[1], pti[0]])
+            component_bbs[complabel[pti[1], pti[0]]] = find_component_bb(complabel, complabel[pti[1], pti[0]],nms_dist_map_p)
     return component_label_ids, component_bbs
 
 

@@ -298,3 +298,7 @@ class BB:
 			return False
 		else:
 			return True
+
+
+	def dist(self,bb):
+		return np.sqrt(pow((bb.x - self.x), 2)+pow((bb.y - self.y), 2))

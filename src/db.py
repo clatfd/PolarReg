@@ -120,25 +120,25 @@ def gen_aug_patch(caseloader,slicei):
     targetdir = DATADESKTOPdir + '/DVWIMAGES/'
 
     aug_cart_patch_batch = []
-    new_cart_patch_batch_filename = '/casepatch/Carotid/'+caseloader.pjname+'/augcart/'+caseloader.pi+os.path.basename(caseloader.dcmpath(slicei))[:-4]+\
+    new_cart_patch_batch_filename = '/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augcart/'+caseloader.pi+os.path.basename(caseloader.dcmpath(slicei))[:-4]+\
                 caseloader.side+'.npy'
     aug_patch_obj['cartpatchbatchname'] = new_cart_patch_batch_filename
-    if not os.path.exists(targetdir+'/casepatch/Carotid/'+caseloader.pjname+'/augcart/'):
-        os.mkdir(targetdir+'/casepatch/Carotid/'+caseloader.pjname+'/augcart/')
+    if not os.path.exists(targetdir+'/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augcart/'):
+        os.mkdir(targetdir+'/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augcart/')
 
     aug_polar_patch_batch = []
-    new_polar_patch_batch_filename = '/casepatch/Carotid/'+caseloader.pjname+'/augpolar/'+caseloader.pi+os.path.basename(caseloader.dcmpath(slicei))[:-4]+\
+    new_polar_patch_batch_filename = '/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augpolar/'+caseloader.pi+os.path.basename(caseloader.dcmpath(slicei))[:-4]+\
                 caseloader.side+'.npy'
     aug_patch_obj['polarpatchbatchname'] = new_polar_patch_batch_filename
-    if not os.path.exists(targetdir+'/casepatch/Carotid/'+caseloader.pjname+'/augpolar/'):
-        os.mkdir(targetdir+'/casepatch/Carotid/'+caseloader.pjname+'/augpolar/')
+    if not os.path.exists(targetdir+'/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augpolar/'):
+        os.mkdir(targetdir+'/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augpolar/')
 
     aug_polar_cont_batch = []
-    new_polar_cont_batch_filename = '/casepatch/Carotid/'+caseloader.pjname+'/augpolarcont/'+caseloader.pi+os.path.basename(caseloader.dcmpath(slicei))[:-4]+\
+    new_polar_cont_batch_filename = '/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augpolarcont/'+caseloader.pi+os.path.basename(caseloader.dcmpath(slicei))[:-4]+\
                 caseloader.side+'.npy'
     aug_patch_obj['polarcoutbatchname'] = new_polar_cont_batch_filename
-    if not os.path.exists(targetdir+'/casepatch/Carotid/'+caseloader.pjname+'/augpolarcont/'):
-        os.mkdir(targetdir+'/casepatch/Carotid/'+caseloader.pjname+'/augpolarcont/')
+    if not os.path.exists(targetdir+'/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augpolarcont/'):
+        os.mkdir(targetdir+'/casepatch/'+caseloader.art+'/'+caseloader.pjname+'/augpolarcont/')
 
     aug_patch_obj['auginfo'] = []
 

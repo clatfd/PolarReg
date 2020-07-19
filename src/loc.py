@@ -3,6 +3,9 @@ import os
 from src.db import load_dcm_stack
 from src.Tracklet import Tracklet
 from src.BB import BB
+import copy
+from src.UTL import croppatch
+import matplotlib.pyplot as plt
 
 def gentracklets(bbs):
     Ltracklet = []
@@ -308,7 +311,6 @@ def collectbb(bbfolder, classnumber=1):
             bbr[slicei].extend(cbbs)
     return bbr
 
-from src.UTL import croppatch
 
 def ct_inside_bb(cts, bb):
     cts_valid = []
@@ -339,67 +341,213 @@ def find_ct_slice(min_dist_cnn, dicomstack, slicei, bball):
     #print(slicei, meancts)
     return meancts
 
+def find_bb_major_all(bbr,dicomstack):
+    Tbb = Tracklet(bbr, 1, dicomstack, iouthres=0.5)
+    Tbb.connectbb()
+    #select one bb per slice, starting from top length
+    bbmajor = Tbb.collect_tracklet_by_c()
+    seqmajor = []
+    for slicei in range(len(bbmajor)):
+        if len(bbmajor[slicei])>0:
+            seqmajor.append([slicei,len(bbmajor[slicei])-1])
+    return bbmajor, seqmajor
 
-def find_cts(min_dist_cnn, dicomstack, bbr):
-    cts = [None for i in range(len(dicomstack))]
-    for slicei in range(len(dicomstack)):
-        cts[slicei] = find_ct_slice(min_dist_cnn, dicomstack, slicei, bbr[slicei])
-    return cts
+def find_bb_major(bbr,dicomstack):
+    Tbb = Tracklet(bbr, 1, dicomstack, iouthres=0.5)
+    Tbb.connectbb()
+    seqlen = [len(Tbb.seqbbsim[i]) for i in range(len(Tbb.seqbbsim))]
+    print('seqlen',seqlen)
+    seq = Tbb.seqbbsim[np.argmax(seqlen)]
+    bbmajor = [[] for i in range(len(dicomstack))]
+    seqmajor = []
+    for seqi in seq:
+        slicei = seqi[0]
+        bbid = seqi[1]
+        seqmajor.append((slicei, len(bbmajor[slicei])))
+        bbmajor[slicei].append(Tbb.bbs[slicei][bbid])
+    return bbmajor, seqmajor
 
-from src.UTL import dist
-def findtrack(min_dist_cnn, caseloader, bbr, dicomstack):
+
+def find_bb_side_s(side, bbr, mid = 256):
+    if side == 'U':
+        return bbr
     bbrside = [[] for i in range(len(bbr))]
     for slicei in range(len(bbr)):
         for bbi in bbr[slicei]:
-            if bbi.x < 256 and caseloader.side == 'R' or \
-                    bbi.x > 256 and caseloader.side == 'L':
+            if bbi.x < mid and side == 'R' or \
+                    bbi.x > mid and side == 'L':
                 bbrside[slicei].append(bbi)
-    tracklet = find_cts(min_dist_cnn, dicomstack, bbrside)
-    for slicei in range(len(tracklet)):
-        #print(tracklet[slicei])
-        if slicei > 0 and len(tracklet[slicei]) > 1 and len(tracklet[slicei-1]) == 1:
-            pct = tracklet[slicei-1][0]
-            dsts = []
-            for bbi in tracklet[slicei]:
-                dsts.append(dist([pct.x,pct.y], [bbi.x,bbi.y]))
-            print(slicei,dsts)
-            tracklet[slicei] = [tracklet[slicei][np.argmin(dsts)]]
-    return tracklet
+    return bbrside
+
+def find_bb_side(caseloader, bbr):
+    return find_bb_side_s(caseloader.side,bbr)
 
 
-import copy
+def find_lumen_cts(min_dist_cnn, dicomstack, seq, bbr):
+    #bbct for each slice only has one/zero bb
+    bbct = [[] for i in range(len(bbr))]
+    cseqbbsim = []
+    for seqid in range(len(seq) - 1, -1, -1):
+        seqi = seq[seqid]
+        slicei = seqi[0]
+        bbid = seqi[1]
+        #print(bbr[slicei],bbid)
+        bb = copy.copy(bbr[slicei][bbid])
+        if seqid < len(seq)-1:
+            bbprev = bbct[slicei + 1][0]
+        else:
+            bbprev = bb
+        # corrected center
+        #print('bbprev',bbprev)
+        posstart = [bbprev.x, bbprev.y, slicei + 1]
+        bbx, bby = cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, seq, posstart)
+        bb.x = bbx
+        bb.y = bby
+        cseqbbsim.insert(0,(slicei, len(bbct[slicei])))
+        bbct[slicei].append(bb)
+        #print('slice',slicei,bb)
+    return bbct, cseqbbsim
+
+
+from src.mindist import multi_min_dist_pred_component
+def find_all_cts(min_dist_cnn, dicomstack, seq, bbr):
+    # bbct for each slice only has one/zero bb
+    bbct = [[] for i in range(len(bbr))]
+    for seqid in range(len(seq)):
+        seqi = seq[seqid]
+        slicei = seqi[0]
+        bbid = seqi[1]
+        bb = bbr[slicei][bbid]
+        cts, nms_dist_map_p = multi_min_dist_pred_component(min_dist_cnn, dicomstack[slicei],
+                                                  bb, 64, 64)
+        # convert ct to dicom coordinate
+        cts_dcm = to_dcm_cord(cts, bb)
+
+        #check in img range
+        for ct in cts_dcm:
+            if ct.x<0:
+                ct.x = 0
+                print('reduce x range', ct)
+            if ct.x>dicomstack.shape[2]-1:
+                ct.x = dicomstack.shape[2]-1
+                print('reduce x range', ct)
+            if ct.y<0:
+                ct.y = 0
+                print('reduce y range', ct)
+            if ct.y>dicomstack.shape[1]-1:
+                ct.y = dicomstack.shape[1]-1
+                print('reduce y range',ct)
+
+        bbct[slicei].extend(cts_dcm)
+    return bbct
+
+
+def fill_bb_ct_gap(bbs,cseqbbsim,min_dist_cnn,dicomstack):
+    cseqbbsimold = copy.copy(cseqbbsim)
+    if len(cseqbbsim) != cseqbbsim[-1][0] - cseqbbsim[0][0] + 1:
+        print('has gap')
+        for si in range(len(cseqbbsimold) - 1):
+            slicei = cseqbbsimold[si][0]
+            slicej = cseqbbsimold[si + 1][0]
+            if slicei == slicej - 1:
+                continue
+            print(cseqbbsimold)
+            print('interp gap', slicei + 1, slicej)
+            for sliceii in range(slicei + 1, slicej):
+                bbid = 0
+                bb = copy.copy(bbs[sliceii - 1][bbid])
+                bbprev = bbs[sliceii - 1][bbid]
+                posstart = [bbprev.x, bbprev.y, sliceii - 1]
+                bbx, bby = cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, cseqbbsim, posstart)
+                bb.x = bbx
+                bb.y = bby
+                cseqbbsim.insert(si + sliceii - slicei - 1, (sliceii, len(bbs[sliceii])))
+                bbs[sliceii].append(bb)
+                print('append', sliceii, bb)
+        return bbs
+
 #fill missing gaps by mean of neighbors
-def fill_tracklet_gap(trackletr):
-    tracklet = copy.deepcopy(trackletr)
-    for slicei in range(len(trackletr)):
-        slicebbs = trackletr[slicei]
-        if len(slicebbs)==0:
-            neighbbs = []
-            for neid in range(1,3):
-                if slicei-neid>=0 and len(trackletr[slicei-neid])==1:
-                    neighbbs.append(trackletr[slicei-neid])
-                if slicei+neid<len(trackletr) and len(trackletr[slicei+neid])==1:
-                    neighbbs.append(trackletr[slicei+neid])
-            if len(neighbbs):
-                print('fill missing bb at',slicei,len(neighbbs))
-                tracklet[slicei] = np.mean(neighbbs,axis=0).tolist()
-            else:
-                print('no neighbors at',slicei)
-                for neid in range(1,len(trackletr)):
-                    if slicei - neid >= 0 and slicei - neid < len(trackletr):
-                        if len(tracklet[slicei-neid])>=1:
-                            tracklet[slicei] = tracklet[slicei-neid]
-                            print('add bb at',slicei,'from',slicei-neid)
-                            break
-                    if slicei + neid >= 0 and slicei + neid < len(trackletr):
-                        if len(tracklet[slicei+neid])>=1:
-                            tracklet[slicei] = tracklet[slicei+neid]
-                            print('add bb at', slicei, 'from', slicei + neid)
-                            break
+def extend_bb_ct(bbs,cseqbbsim,min_dist_cnn,dicomstack):
+    cseqbbsimold = copy.copy(cseqbbsim)
+    if len(cseqbbsim)!=cseqbbsim[-1][0]-cseqbbsim[0][0]+1:
+        print('has gap')
+        bbs = fill_bb_ct_gap(bbs,cseqbbsim,min_dist_cnn,dicomstack)
+    if cseqbbsim[0][0] > 0:
+        print('insert', cseqbbsim[0][0] - 1, -1)
+        for slicei in range(cseqbbsim[0][0] - 1, -1, -1):
+            bbid = cseqbbsim[0][1]
+            bb = copy.copy(bbs[slicei + 1][bbid])
+            bbprev = bbs[slicei + 1][bbid]
+            posstart = [bbprev.x,bbprev.y,slicei+1]
+            bbx, bby = cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, cseqbbsim, posstart)
+            bb.x = bbx
+            bb.y = bby
+            cseqbbsim.insert(0, (slicei, len(bbs[slicei])))
+            bbs[slicei].append(bb)
+            print('insert', slicei, bb)
+    if cseqbbsim[-1][0]<len(dicomstack)-1:
+        print('append',cseqbbsim[-1][0]+1,len(dicomstack))
+        for slicei in range(cseqbbsim[-1][0]+1,len(dicomstack),1):
+            bbid = cseqbbsim[-1][1]
+            bb = copy.copy(bbs[slicei-1][bbid])
+            bbprev = bbs[slicei-1][bbid]
+            posstart = [bbprev.x,bbprev.y,slicei-1]
+            bbx, bby = cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, cseqbbsim, posstart)
+            bb.x = bbx
+            bb.y = bby
+            cseqbbsim.append((slicei,len(bbs[slicei])))
+            bbs[slicei].append(bb)
+            print('append',slicei,bb)
+    return bbs
 
-    return tracklet
 
-import matplotlib.pyplot as plt
+def med_filter_bb(bb, k = 3):
+    hk = k//2
+    bbnew = copy.deepcopy(bb)
+    for bbi in range(len(bb)):
+        bbneis = []
+        for nei in range(-hk,hk+1):
+            if bbi+nei>=0 and bbi+nei<len(bb) and len(bb[bbi+nei])==1:
+                bbneis.append(bb[bbi+nei][0])
+        if len(bbneis)==0:
+            print('no neighbor for',bbi)
+            continue
+        #print('slice',bbi,mdx)
+        if len(bbnew[bbi])==0:
+            bbnew[bbi].append(np.mean(bbneis))
+        bbnew[bbi][0].x = np.median([bb.x for bb in bbneis])
+        bbnew[bbi][0].y = np.median([bb.y for bb in bbneis])
+    return bbnew
+
+
+def findtrack(min_dist_cnn, caseloader, bbr, dicomstack):
+    #select side of interest
+    bbrside = find_bb_side(caseloader, bbr)
+    #display_tracklet(bbrside)
+    #select major seq from Tbb
+    bbmajor, seq = find_bb_major(bbrside, dicomstack)
+    #display_tracklet_dcm_patch(bbmajor,dicomstack)
+    #refine on centers based on min dist map from BB center
+    bbct, seqbbsim = find_lumen_cts(min_dist_cnn, dicomstack, seq, bbmajor)
+    #extend bb towards two ends
+    bbfill = extend_bb_ct(bbct,seqbbsim,min_dist_cnn,dicomstack)
+    #median filter for smoothing
+    bbsmooth = med_filter_bb(bbfill)
+    return bbsmooth
+
+def find_all_tracks(min_dist_cnn, caseloader, bbr, dicomstack):
+    # select side of interest
+    bbrside = find_bb_side(caseloader, bbr)
+    # display_tracklet(bbrside)
+    # select major seq from Tbb
+    bbmajor, seq = find_bb_major(bbrside, dicomstack)
+    #display_tracklet_dcm_patch(bbmajor, dicomstack)
+    # find all connected component (from otsu thresholded mindist prob) centers within the range of bb
+    bbct = find_all_cts(min_dist_cnn, dicomstack, seq, bbmajor)
+    #remove connected component bb center having no iou with bbr
+    bbct_v = bb_in_tracklet(bbct, bbrside)
+    return bbct_v
+
 def display_tracklet(tracklet,figfilename=None):
     featx = []
     featy = []
@@ -412,6 +560,7 @@ def display_tracklet(tracklet,figfilename=None):
     plt.title('tracklet pos')
     plt.plot(featx,slices,'o')
     plt.plot(featy, slices, 'o')
+    plt.gca().invert_yaxis()
     plt.legend(['x','y'])
     if figfilename is not None:
         plt.savefig(figfilename)
@@ -424,7 +573,7 @@ def display_tracklet_dcm_patch(tracklet,dicomstack,figfilename=None):
     plt.figure(figsize=(18,5))
     for slicei in range(len(tracklet)):
         for bb in tracklet[slicei]:
-            dcmslice = croppatch(dicomstack[slicei],bb.y,bb.x,bb.h,bb.w)
+            dcmslice = croppatch(dicomstack[slicei],bb.y,bb.x,bb.h*2,bb.w*2)
             w = int(round(bb.w/2))
             h = int(round(bb.h/2))
             dcmslice[h, w:w * 3] = np.max(dcmslice)
@@ -449,7 +598,6 @@ def intpath(pos1, pos2, dicomstack):
     pos2int = [int(round(posi)) for posi in pos2]
     direction = pos2 - pos1
     dist = np.linalg.norm(direction)
-    print(dist)
     dirnorm = direction / dist
     intp = []
     intp.append(dicomstack[pos1int[2]][pos1int[1]][pos1int[0]])
@@ -461,7 +609,7 @@ def intpath(pos1, pos2, dicomstack):
         plt.imshow(pdsp)
         plt.show()
 
-    for stepi in range(int(np.floor(dist))):
+    for stepi in range(1,int(np.floor(dist))):
         cpos = pos1 + dirnorm * stepi
         cposint = np.array([int(np.round(cposi)) for cposi in cpos])
         if DEBUG:
@@ -472,7 +620,12 @@ def intpath(pos1, pos2, dicomstack):
             plt.title(str(cposint[2]))
             plt.show()
 
-        intp.append(dicomstack[cposint[2]][cposint[1]][cposint[0]])
+        valceil = dicomstack[int(np.ceil(cpos[2]))][cposint[1]][cposint[0]]
+        valfloor = dicomstack[int(np.floor(cpos[2]))][cposint[1]][cposint[0]]
+        w1 = int(np.ceil(cpos[2])) - cpos[2]
+        w2 = cpos[2] - int(np.floor(cpos[2]))
+        intp.append(valceil * w2 / (w1 + w2) + valfloor * w1 / (w1 + w2))
+
     intp.append(dicomstack[pos2int[2]][pos2int[1]][pos2int[0]])
     if DEBUG:
         pdsp = croppatch(dicomstack[pos2int[2]], pos2int[1], pos2int[0])
@@ -492,27 +645,33 @@ def track_con_path(bbr, trackend, trackstart):
 
 
 #find match ct (with previous slice) from min dist map
-def ct_with_min_change(bbprev,slicei,cts_dcm,dicomstack):
+def ct_with_min_change(posstart,slicei,cts_dcm,dicomstack):
     minstd = np.inf
     ctm = cts_dcm[0]
     for ci in range(len(cts_dcm)):
-        posstart = [bbprev.x,bbprev.y,slicei-1]
         posend = [cts_dcm[ci][0],cts_dcm[ci][1],slicei]
         path_int = intpath(posstart,posend,dicomstack)
         cstd = np.std(path_int)
+        #print('cstd',cstd,posstart,posend)
+        #plt.plot(path_int)
+        #plt.show()
         if cstd<minstd:
             minstd = cstd
             ctm = cts_dcm[ci]
     return ctm
 
 
-from src.mindist import multi_min_dist_pred_withinbb
+from src.mindist import multi_min_dist_pred_withinbb,labelcts
 from src.dcmseg import to_dcm_cord
 #continuous center with predicted bounding box
-def cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, seq, bbprev):
-    DEBUG = 1
-    cts, nms_dist_map_p = multi_min_dist_pred_withinbb(min_dist_cnn, dicomstack[slicei] / np.max(dicomstack[slicei]),
-                                                       bb, 64, 64)
+def cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, seq, posstart):
+    DEBUG = 0
+    if slicei == seq[-1][0]:
+        cts, nms_dist_map_p = multi_min_dist_pred_withinbb(min_dist_cnn, dicomstack[slicei],
+                                                  bb, 64, 64)
+    else:
+        cts, nms_dist_map_p = multi_min_dist_pred(min_dist_cnn, dicomstack[slicei],
+                                              bb.y, bb.x, 64, 64)
     # merge multiple ct in the same connected region
     merge_cts = mergects(nms_dist_map_p[:, :, 0], cts)
     # convert ct to dicom coordinate
@@ -525,20 +684,55 @@ def cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, seq, bbprev):
         bbx = cts_dcm[0][0]
         bby = cts_dcm[0][1]
     elif len(cts_dcm) > 1:
-        # first slice use min to the center
-        if slicei == seq[0][0]:
-            bbx = cts_dcm[0][0]
-            bby = cts_dcm[0][1]
+        # last slice choose lower artery
+        if slicei == seq[-1][0]:
+            mapint = [nms_dist_map_p[int(round(merge_cts[ica][1])), int(round(merge_cts[ica][0])), 0] for ica in
+                      range(len(merge_cts))]
+            print('mapint',mapint)
+            #ypos = [cts_dcm[ica][1] for ica in range(len(cts_dcm))]
+            #ica = np.argmax(ypos)
+
+            ica = np.argmax(mapint)
+            bbx = cts_dcm[ica][0]
+            bby = cts_dcm[ica][1]
         # other slices find minimum int change
         else:
-            print('multiple', cts_dcm)
-            ctm = ct_with_min_change(bbprev, slicei, cts_dcm)
-            print('ctm', ctm)
-            plt.imshow(croppatch(dicomstack[slicei], ctm[1], ctm[0]))
-            plt.show()
+            #print('multiple', cts_dcm,bbprev)
+            ctm = ct_with_min_change(posstart, slicei, cts_dcm, dicomstack)
+            #print('ctm', ctm)
             bbx = ctm[0]
             bby = ctm[1]
+        if DEBUG:
+            plt.imshow(croppatch(dicomstack[slicei], bby, bbx))
+            plt.show()
     else:
         print('no cts')
 
     return bbx, bby
+
+
+def bbray(bbr,tracki,dicomstack):
+    bbx = int(round(bbr[tracki[0]][tracki[1]].x))
+    bby = int(round(bbr[tracki[0]][tracki[1]].y))
+    intpx = []
+    intpy = []
+    for ri in range(-20,21):
+        intpx.append(dicomstack[tracki[0]][bby+ri,bbx])
+        intpy.append(dicomstack[tracki[0]][bby,bbx+ri])
+    return intpx, intpy
+
+
+#select bbct only when there is overlap with bb detection from yolo
+def bb_in_tracklet(bbct,bbrside):
+    bbct_v = []
+    for slicei in range(len(bbrside)):
+        bbcti = []
+        if len(bbrside[slicei])>0:
+            bb = bbrside[slicei][0]
+            for bbi in bbct[slicei]:
+                if bbi.get_iou(bb)>0:
+                    bbcti.append(bbi)
+                else:
+                    print('remove',slicei,bbi)
+        bbct_v.append(bbcti)
+    return bbct_v

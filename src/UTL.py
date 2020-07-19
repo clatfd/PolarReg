@@ -525,3 +525,4 @@ def mergechannel(imgs):
     for chani in range(1,len(imgs)):
         mergeimg[:,:,chani] = imgs[chani]
     return mergeimg
+

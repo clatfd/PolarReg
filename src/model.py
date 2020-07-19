@@ -51,8 +51,12 @@ def buildmodel(config):
 
     fcn1 = Flatten(name = 'aux_fx1')(regresser)
     fcn1 = Dropout(0.2)(fcn1)
-    regr = Dense(config['patchheight']*2, name='aux_outputr')(fcn1)
-    regr = Reshape((config['patchheight'], 2), name='reg')(regr)
+    if 'regnum' in config:
+        regnum = config['regnum']
+    else:
+        regnum = 2
+    regr = Dense(config['patchheight']*regnum, name='aux_outputr')(fcn1)
+    regr = Reshape((config['patchheight'], regnum), name='reg')(regr)
 
     if 'gradinput' in config and config['gradinput']:
         input_grad = Input(shape=(config['height'], config['width']),
@@ -111,6 +115,7 @@ def Unet3D(config):
     merge9 = concatenate([conv1, up9], axis=4)
     conv9 = Conv3D(64//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(merge9)
     #conv9 = Conv3D(64//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
+    conv9 = MaxPooling3D(pool_size=(1, 1, config['depth']))(conv9)
     conv9 = Conv3D(2, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv9)
     conv10 = Conv3D(1, 1, activation='sigmoid')(conv9)
 
@@ -172,3 +177,19 @@ def Unet2D(config):
 
     # model.summary()
     return model
+
+import resnet
+def resnetmodel(config):
+    patchheight, patchwidth, depth, channel = config['height'], config['width'], config['depth'], config['channel']
+    resnet101 = resnet.ResNet101()#weights='imagenet'
+    input_img = Input(shape=(patchheight, patchwidth, depth, channel), name='patchimg')
+    input_imgr = Reshape((patchheight, patchwidth, depth), name='reshapeinput')(input_img)
+    fcn1 = resnet101(input_imgr)
+
+    fcn1 = Dropout(0.2)(fcn1)
+    regr = Dense(patchheight * 2, name='aux_outputr')(fcn1)
+    regr = Reshape((patchheight, 2), name='reg')(regr)
+
+    cnn = Model(inputs=input_img, outputs=regr)
+    return cnn
+
