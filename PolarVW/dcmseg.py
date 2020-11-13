@@ -1,8 +1,8 @@
-from src.UTL import croppatch, topolar
-from src.mindist import multi_min_dist_pred_withinbb
-from src.db import crop_dcm_stack
-from src.polarutil import polar_pred_cont_cst, toctbd, plotct, plotpolar
-from src.eval import SegResult
+from PolarVW.UTL import croppatch, topolar
+from PolarVW.mindist import multi_min_dist_pred_withinbb
+from PolarVW.db import crop_dcm_stack
+from PolarVW.polarutil import polar_pred_cont_cst, toctbd, plotct, plotpolar
+from PolarVW.eval import SegResult
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -72,7 +72,7 @@ def stack_polar_seg(vwcnn,min_dist_cnn,bbs,predname, einame, dicomstack, usegrad
 
     return segresult
 
-from src.BB import BB
+from PolarVW.BB import BB
 #from roi coordinate (vw centered in the img of 128*SCALE) to dicom coordinate (512*512)
 def to_dcm_cord(cts,bb,SCALE=4):
     cts_dcm = []
@@ -101,7 +101,7 @@ def to_roi_cord(contours,bb,SCALE=4):
     return contour_roi
 
 
-from src.mergecont import mergecont
+from PolarVW.mergecont import mergecont
 def polar_seg_slice(vwcnn,vwcfg,dicomstack,slicei,cts,SCALE = 4, usegrad = False, ITERPRED = True, cartreg=False):
     DEBUG = 0
     contourin = None

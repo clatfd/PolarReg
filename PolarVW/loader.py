@@ -5,10 +5,10 @@ import glob
 import pydicom
 import random
 import cv2
-from src.variables import DATADESKTOPdir
-from src.BB import BB
+from PolarVW.variables import DATADESKTOPdir
+from PolarVW.BB import BB
 import matplotlib.pyplot as plt
-from src.UTL import croppatch
+from PolarVW.UTL import croppatch
 
 class DBLoader():
 	def __init__(self,pilist=None):
@@ -143,10 +143,15 @@ class CaseLoader():
 		self.pi = self.caselist['pi']
 		self.ei = self.caselist['ei']
 		self.side = self.caselist['side']
-		if self.caselist['pjname']=='knee_artery_analysis':
-			self.art = 'Knee'
+		if 'art' in self.caselist:
+			self.art = self.caselist['art']
 		else:
-			self.art = 'Carotid'
+			if self.caselist['pjname']=='knee_artery_analysis':
+				self.art = 'Knee'
+			elif self.caselist['pjname'] in ['WALLIV0.5mm','reaml_2tp']:
+				self.art = 'ICA'
+			else:
+				self.art = 'Carotid'
 		self.targetprefix = DATADESKTOPdir+'/DVWIMAGES/'
 		self.targetdir = self.targetprefix+'casepatch/'+self.art+'/'+self.pjname+'/'
 		if 'dcmprefix' in self.caselist:

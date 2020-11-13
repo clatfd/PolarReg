@@ -1,10 +1,10 @@
 import numpy as np
 import os
-from src.db import load_dcm_stack
-from src.Tracklet import Tracklet
-from src.BB import BB
+from PolarVW.db import load_dcm_stack
+from PolarVW.Tracklet import Tracklet
+from PolarVW.BB import BB
 import copy
-from src.UTL import croppatch
+from PolarVW.UTL import croppatch
 import matplotlib.pyplot as plt
 
 def gentracklets(bbs):
@@ -323,7 +323,7 @@ def ct_inside_bb(cts, bb):
     return cts_valid
 
 
-from src.mindist import multi_min_dist_pred,mergects
+from PolarVW.mindist import multi_min_dist_pred,mergects
 def find_ct_slice(min_dist_cnn, dicomstack, slicei, bball):
     meancts = []
     for bb in bball:
@@ -409,7 +409,7 @@ def find_lumen_cts(min_dist_cnn, dicomstack, seq, bbr):
     return bbct, cseqbbsim
 
 
-from src.mindist import multi_min_dist_pred_component
+from PolarVW.mindist import multi_min_dist_pred_component
 def find_all_cts(min_dist_cnn, dicomstack, seq, bbr):
     # bbct for each slice only has one/zero bb
     bbct = [[] for i in range(len(bbr))]
@@ -661,8 +661,8 @@ def ct_with_min_change(posstart,slicei,cts_dcm,dicomstack):
     return ctm
 
 
-from src.mindist import multi_min_dist_pred_withinbb,labelcts
-from src.dcmseg import to_dcm_cord
+from PolarVW.mindist import multi_min_dist_pred_withinbb,labelcts
+from PolarVW.dcmseg import to_dcm_cord
 #continuous center with predicted bounding box
 def cont_ct_within_bb(min_dist_cnn, dicomstack, slicei, bb, seq, posstart):
     DEBUG = 0

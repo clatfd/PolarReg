@@ -193,3 +193,43 @@ def resnetmodel(config):
     cnn = Model(inputs=input_img, outputs=regr)
     return cnn
 
+def simpleCNNModel(config):
+    input_img = Input(shape=(config['height'], config['width'], config['depth'], config['channel']), name='patchimg')
+    downscale = 4
+    conv1 = Conv3D(64//downscale, 3, strides=(2, 2, 1), activation='relu', padding='same', kernel_initializer='he_normal')(input_img)
+    conv1 = Conv3D(64//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv1)
+    pool1 = MaxPooling3D(pool_size=(2, 2, 1))(conv1)
+    conv2 = Conv3D(128//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool1)
+    conv2 = Conv3D(128//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv2)
+    pool2 = MaxPooling3D(pool_size=(2, 2, 1))(conv2)
+    conv3 = Conv3D(256//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool2)
+    conv3 = Conv3D(256//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv3)
+    #conv3 = Conv3D(256//downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv3)
+    pool3 = MaxPooling3D(pool_size=(2, 2, 1))(conv3)
+    conv4 = Conv3D(256 // downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool3)
+    conv4 = Conv3D(256 // downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv4)
+    #conv4 = Conv3D(256 // downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv4)
+    pool4 = MaxPooling3D(pool_size=(2, 2, 1))(conv4)
+    conv5 = Conv3D(256 // downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(pool4)
+    conv5 = Conv3D(256 // downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv5)
+    #conv5 = Conv3D(256 // downscale, 3, activation='relu', padding='same', kernel_initializer='he_normal')(conv5)
+    pool5 = MaxPooling3D(pool_size=(2, 2, 1))(conv5)
+    fcn1 = Flatten(name='fn1')(pool5)
+    fcn1 = Dropout(0.2)(fcn1)
+    fcn2 = Dense(32, name='fn2',activation='relu')(fcn1)
+    fcn2 = Dropout(0.2)(fcn2)
+    fcn3 = Dense(1, name='fn3',activation='sigmoid')(fcn2)
+    cnn = Model(inputs=input_img, outputs=fcn3)
+
+    return cnn
+
+from keras.applications import VGG16
+def vgg16Model(config):
+    input_img = Input(shape=(config['height'], config['width'], config['channel']), name='patchimg')
+    vgg = VGG16(include_top=False,
+        weights="imagenet",
+        input_tensor=input_img,
+        input_shape=None,
+        pooling=None,
+        classes=1)
+    return vgg

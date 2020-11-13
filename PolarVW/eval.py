@@ -185,8 +185,8 @@ class Evalresult():
                 plt.imshow(polar_plot)
                 plt.show()
 
-from src.UTL import croppatch
-from src.polarutil import plotct
+from PolarVW.UTL import croppatch
+from PolarVW.polarutil import plotct
 class SegResult():
     def __init__(self, predname, examname, dicomstack, load = True):
         self.predname = predname

@@ -163,7 +163,7 @@ def bb_match_score_patch(featuremodel, patch1, patch2):
     patchfeat2 = featuremodel.predict(patch2[None,:,:,None])[0]
     return np.sum(abs(patchfeat1-patchfeat2))
 
-from src.UTL import croppatch
+from PolarVW.UTL import croppatch
 def bb_match_score(featuremodel, imgstack, pos1, pos2):
     patch1 = croppatch(imgstack[pos1[2]], pos1[1], pos1[0], 64, 64)
     patch2 = croppatch(imgstack[pos2[2]], pos2[1], pos2[0], 64, 64)

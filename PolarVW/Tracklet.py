@@ -6,9 +6,9 @@ from scipy import signal
 import os
 from collections import Counter
 
-from src.BB import BB
-from src.UTL import croppatch, fillpatch
-from src.triplet import bb_match_score
+from PolarVW.BB import BB
+from PolarVW.UTL import croppatch, fillpatch
+from PolarVW.triplet import bb_match_score
 
 
 def intpath(pos1, pos2, dicomstack):
@@ -1371,9 +1371,9 @@ from scipy import signal
 import os
 from collections import Counter
 
-from src.BB import BB
-from src.UTL import croppatch, fillpatch
-from src.triplet import bb_match_score
+from PolarVW.BB import BB
+from PolarVW.UTL import croppatch, fillpatch
+from PolarVW.triplet import bb_match_score
 
 
 def intpath(pos1, pos2, dicomstack):

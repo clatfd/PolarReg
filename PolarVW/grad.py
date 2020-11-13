@@ -1,7 +1,7 @@
 from scipy import ndimage
 from scipy.ndimage import gaussian_filter
 import numpy as np
-from src.UTL import croppatch
+from PolarVW.UTL import croppatch
 import copy
 import matplotlib.pyplot as plt
 

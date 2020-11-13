@@ -1,83 +1,87 @@
 import glob
-from src.variables import DATADESKTOPdir
+from PolarVW.variables import DATADESKTOPdir
 import os
 import numpy as np
 import cv2
 import pydicom
-from src.UTL import croppatch
+from PolarVW.UTL import croppatch
 
 def adddb(dbloader,dbname,dbdir=None):
-	if dbdir is None:
-		dbdir = DATADESKTOPdir+'/DVWIMAGES/casepatch/Carotid'
-	if not os.path.exists(dbdir+'/'+dbname):
-		print('no dir exit',dbdir+'/'+dbname)
-		return
-	pilist = glob.glob(dbdir+'/'+dbname+'/list/*.list')
-	for pi in pilist:
-		pi = pi.replace('\\','/')
-		pisplit = pi.split('/')
-		casename = pisplit[-3]
-		listname = pisplit[-1]
-		piname = listname.split('E')[0]
-		dbloader.addcase(casename+'-'+piname,pi)
-	print('add',len(pilist),'list size',dbloader.size)
+    if dbdir is None:
+        dbdir = DATADESKTOPdir+'/DVWIMAGES/casepatch/Carotid'
+    if not os.path.exists(dbdir+'/'+dbname):
+        print('no dir exit',dbdir+'/'+dbname)
+        return
+    pilist = glob.glob(dbdir+'/'+dbname+'/list/*.list')
+    for pi in pilist:
+        pi = pi.replace('\\','/')
+        pisplit = pi.split('/')
+        casename = pisplit[-3]
+        listname = pisplit[-1]
+        if dbname == 'WALLIV0.5mm':
+            piname = listname.split('_F')[0].split('_M')[0]
+        else:
+            piname = listname.split('E')[0]
+        dbloader.addcase(casename+'-'+piname,pi)
+    print('add',len(pilist),'list size',dbloader.size)
+
 
 #read dcm image for testing
 def load_dcm_stack(dicompath, norm=0, seq='101'):
-	piname = dicompath.split('/')[-2]
-	einame = dicompath.split('/')[-1]
-	imgnamepattern = os.path.join(dicompath, einame + 'S' + seq + 'I*.dcm')
-	targetimgs = glob.glob(imgnamepattern)
-	if len(targetimgs) == 0:
-		print('No dcm', imgnamepattern)
-		return
-	slices = [int(i.split('I')[-1][:-4]) for i in targetimgs]
-	print(slices, np.min(slices), np.max(slices))
-	cartimgstack = np.zeros((np.max(slices), 512, 512))
-	imgnamepattern = os.path.join(dicompath, einame + 'S' + seq + 'I%d.dcm')
-	if np.min(slices)!=1:
-		print('min slice not 1')
-	for slicei in range(np.min(slices), np.max(slices) + 1):
-		imgfilename = imgnamepattern % slicei
-		if os.path.exists(imgfilename):
-			RefDs = pydicom.read_file(imgfilename).pixel_array
-			if RefDs.shape != (512, 512):
-				# print('Not regular size',RefDs.shape)
-				if RefDs.shape[0] == RefDs.shape[1]:
-					RefDs = cv2.resize(RefDs, (512, 512))
-				else:
-					padarr = np.zeros((max(RefDs.shape), max(RefDs.shape)))
-					padarr[0:RefDs.shape[0], 0:RefDs.shape[1]] = RefDs
-					RefDs = padarr
-					RefDs = cv2.resize(RefDs, (512, 512))
+    piname = dicompath.split('/')[-2]
+    einame = dicompath.split('/')[-1]
+    imgnamepattern = os.path.join(dicompath, einame + 'S' + seq + 'I*.dcm')
+    targetimgs = glob.glob(imgnamepattern)
+    if len(targetimgs) == 0:
+        print('No dcm', imgnamepattern)
+        return
+    slices = [int(i.split('I')[-1][:-4]) for i in targetimgs]
+    print(slices, np.min(slices), np.max(slices))
+    cartimgstack = np.zeros((np.max(slices), 512, 512))
+    imgnamepattern = os.path.join(dicompath, einame + 'S' + seq + 'I%d.dcm')
+    if np.min(slices)!=1:
+        print('min slice not 1')
+    for slicei in range(np.min(slices), np.max(slices) + 1):
+        imgfilename = imgnamepattern % slicei
+        if os.path.exists(imgfilename):
+            RefDs = pydicom.read_file(imgfilename).pixel_array
+            if RefDs.shape != (512, 512):
+                # print('Not regular size',RefDs.shape)
+                if RefDs.shape[0] == RefDs.shape[1]:
+                    RefDs = cv2.resize(RefDs, (512, 512))
+                else:
+                    padarr = np.zeros((max(RefDs.shape), max(RefDs.shape)))
+                    padarr[0:RefDs.shape[0], 0:RefDs.shape[1]] = RefDs
+                    RefDs = padarr
+                    RefDs = cv2.resize(RefDs, (512, 512))
 
-			dcmimg = RefDs / np.max(RefDs)
-			cartimgstack[slicei - 1] = dcmimg
-		else:
-			print('no slice img for', imgfilename)
-	return cartimgstack
+            dcmimg = RefDs / np.max(RefDs)
+            cartimgstack[slicei - 1] = dcmimg
+        else:
+            print('no slice img for', imgfilename)
+    return cartimgstack
 
 def crop_dcm_stack(dicomstack,sid,cty,ctx,hps,RESCALE,depth = 3):
-	cartstack = croppatch(dicomstack[sid], cty, ctx, hps, hps)
-	cartstackrz = cv2.resize(cartstack, (0,0), fx = RESCALE, fy = RESCALE)
-	cartstackrz = np.repeat(cartstackrz[:, :, None], depth, axis=2)
-	nei = depth // 2
-	for ni in range(1, nei + 1):
-		imgslicep = sid - ni
-		if imgslicep >= 0:
-			cartstack = croppatch(dicomstack[imgslicep], cty, ctx, 64, 64)
-			cartstackrz[..., nei - ni] = cv2.resize(cartstack, (0,0), fx = RESCALE, fy = RESCALE)
-		imgslicen = sid + ni
-		if imgslicen < dicomstack.shape[0]:
-			cartstack = croppatch(dicomstack[imgslicen], cty, ctx, 64, 64)
-			cartstackrz[..., nei + ni] = cv2.resize(cartstack, (0,0), fx = RESCALE, fy = RESCALE)
-	cartstackrz = cartstackrz / np.max(cartstackrz)
-	return cartstackrz
+    cartstack = croppatch(dicomstack[sid], cty, ctx, hps, hps)
+    cartstackrz = cv2.resize(cartstack, (0,0), fx = RESCALE, fy = RESCALE)
+    cartstackrz = np.repeat(cartstackrz[:, :, None], depth, axis=2)
+    nei = depth // 2
+    for ni in range(1, nei + 1):
+        imgslicep = sid - ni
+        if imgslicep >= 0:
+            cartstack = croppatch(dicomstack[imgslicep], cty, ctx, 64, 64)
+            cartstackrz[..., nei - ni] = cv2.resize(cartstack, (0,0), fx = RESCALE, fy = RESCALE)
+        imgslicen = sid + ni
+        if imgslicen < dicomstack.shape[0]:
+            cartstack = croppatch(dicomstack[imgslicen], cty, ctx, 64, 64)
+            cartstackrz[..., nei + ni] = cv2.resize(cartstack, (0,0), fx = RESCALE, fy = RESCALE)
+    cartstackrz = cartstackrz / np.max(cartstackrz)
+    return cartstackrz
 
 import pickle
-from src.UTL import croppatch, topolar
-from src.polarutil import tocordpolar, toctbd, plotct
-from src.mindist import find_nms_center
+from PolarVW.UTL import croppatch, topolar
+from PolarVW.polarutil import tocordpolar, toctbd, plotct
+from PolarVW.mindist import find_nms_center
 import copy
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt

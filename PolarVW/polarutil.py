@@ -88,7 +88,7 @@ def polarpredimg(polarpatch,config,polarmodel):
     # print(pts[height-1+imgpad],np.mean(pts[height-1+imgpad]))
     return pred_img_c, pred_contour_c
 
-from src.grad import get_grad_img
+from PolarVW.grad import get_grad_img
 import copy
 # rotate patch and predict polar cont along with consistency in rotated patches
 def polar_pred_cont_cst(polarpatch,config,polarmodel,gap=10,bioutput=False,usegrad=False):
@@ -206,9 +206,9 @@ def draw_com_vw(com_vw_name,cart_vw_label,cart_vw_seg,cartpatch):
     comimg[:, :, 1] = cart_vw_seg * 255
     cv2.imwrite(com_vw_name,comimg)
 
-from src.eval import diffmap,DSC
+from PolarVW.eval import diffmap,DSC
 def polar_plot(polar_plot_name,cart_patch,cart_label,polarbd,cart_seg,
-               polar_patch,polar_label,cart_unet,cart_mask):
+               polar_padisttch,polar_label,cart_unet,cart_mask):
     fz = 20
     fig = plt.figure(figsize=(20, 8))
     plt.subplot(2, 5, 1)
@@ -220,12 +220,15 @@ def polar_plot(polar_plot_name,cart_patch,cart_label,polarbd,cart_seg,
     plt.subplot(2, 5, 3)
     plt.title('Prediction \nDSC:%.3f' % (DSC(cart_seg, cart_label)), fontsize=fz)
     plt.imshow(diffmap(cart_seg, cart_label), cmap='gray')
-    plt.subplot(2, 5, 4)
-    plt.title('U-Net Prediction \nDSC:%.3f' % (DSC(cart_unet, cart_label)), fontsize=fz)
-    plt.imshow(diffmap(cart_unet, cart_label), cmap='gray')
-    plt.subplot(2, 5, 5)
-    plt.title('Mask-RCNN Prediction \nDSC:%.3f' % (DSC(cart_mask, cart_label)), fontsize=fz)
-    plt.imshow(diffmap(cart_mask, cart_label), cmap='gray')
+
+    if cart_unet is not None:
+        plt.subplot(2, 5, 4)
+        plt.title('U-Net Prediction \nDSC:%.3f' % (DSC(cart_unet, cart_label)), fontsize=fz)
+        plt.imshow(diffmap(cart_unet, cart_label), cmap='gray')
+    if cart_mask is not None:
+        plt.subplot(2, 5, 5)
+        plt.title('Mask-RCNN Prediction \nDSC:%.3f' % (DSC(cart_mask, cart_label)), fontsize=fz)
+        plt.imshow(diffmap(cart_mask, cart_label), cmap='gray')
 
     plt.subplot(2, 5, 6)
     plt.title('Polar Patch', fontsize=fz)
