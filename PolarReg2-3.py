@@ -39,11 +39,11 @@ from keras.utils import multi_gpu_model
 import sys
 
 sys.path.append(r'\\DESKTOP4\Dtensorflow\LiChen\VW\PolarReg')
-from src.loader import DBLoader, CaseLoader
-from src.variables import DESKTOPdir, DATADESKTOPdir, MODELDESKTOPdir, taskdir
-from src.db import adddb
-from src.UTL import topolar, croppatch
-from src.polarutil import tocordpolar
+from PolarVW.loader import DBLoader, CaseLoader
+from PolarVW.variables import DESKTOPdir, DATADESKTOPdir, MODELDESKTOPdir, taskdir
+from PolarVW.db import adddb
+from PolarVW.UTL import topolar, croppatch
+from PolarVW.polarutil import tocordpolar
 
 taskname = 'PolarReg2-3'
 
@@ -79,7 +79,7 @@ with open(taskdir + '/dbsep1174.pickle', 'rb') as fp:
 # dbsep is a dict with 'train':['casename-pi'],'val','test'
 dbloader.loadsep(dbsep)
 
-from src.model import buildmodel
+from PolarVW.model import buildmodel
 from keras.models import load_model
 
 modelname = None
@@ -118,8 +118,8 @@ else:
 cnn.compile(optimizer=keras.optimizers.Adam(lr=1e-5), loss='mae')  # dice_coef_loss
 print('cnn test', cnn.predict(np.zeros((cfg['G'], cfg['height'], cfg['width'], cfg['depth'], cfg['channel'])))[0].shape)
 
-from src.polarutil import batch_polar_rot
-from src.db import gen_aug_patch
+from PolarVW.polarutil import batch_polar_rot
+from PolarVW.db import gen_aug_patch
 
 train_exam_ids = dbloader.list_exams('train')
 val_exam_ids = dbloader.list_exams('val')
@@ -229,8 +229,8 @@ def data_generator(config, exams, aug):
                             yield (xarray, yarray)
 
 
-from src.polarutil import toctbd, polarpredimg, polar_pred_cont_cst, plotct, plotpolar
-from src.eval import DSC, diffmap
+from PolarVW.polarutil import toctbd, polarpredimg, polar_pred_cont_cst, plotct, plotpolar
+from PolarVW.eval import DSC, diffmap
 
 
 def get_val_dice(cnn, config):
@@ -340,7 +340,7 @@ logdirprof = MODELDESKTOPdir + '/Ftensorflow/LiChen/logs/' + taskname + '/traini
 if not os.path.exists(logdir):
     os.makedirs(logdirprof)
 
-from src.log import TrainValTensorBoard
+from PolarVW.log import TrainValTensorBoard
 
 tensorboard = TrainValTensorBoard(log_dir=logdir, write_graph=False)
 

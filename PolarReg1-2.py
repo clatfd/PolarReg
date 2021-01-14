@@ -31,9 +31,9 @@ from keras.utils import multi_gpu_model
 
 import sys
 sys.path.append(r'\\DESKTOP4\Dtensorflow\LiChen\VW\PolarReg')
-from src.loader import DBLoader,CaseLoader
-from src.variables import DESKTOPdir,DATADESKTOPdir,taskdir
-from src.db import adddb
+from PolarVW.loader import DBLoader,CaseLoader
+from PolarVW.variables import DESKTOPdir,DATADESKTOPdir,taskdir
+from PolarVW.db import adddb
 
 taskname = 'PolarReg1-2'
 
@@ -69,7 +69,7 @@ with open(taskdir + '/dbsep1174.pickle', 'rb') as fp:
 # dbsep is a dict with 'train':['casename-pi'],'val','test'
 dbloader.loadsep(dbsep)
 
-from src.model import buildmodel
+from PolarVW.model import buildmodel
 from keras.models import load_model
 models = glob.glob(os.path.join(taskdir,taskname,'Epo*-*-*.hdf5'))
 if len(models) > 0:
@@ -100,7 +100,7 @@ else:
 cnn.compile(optimizer=keras.optimizers.Adam(lr=1e-4), loss='mae')#dice_coef_loss
 print('cnn test',cnn.predict(np.zeros((cfg['G'],cfg['height'],cfg['width'],cfg['depth'],cfg['channel'])))[0].shape)
 
-from src.polarutil import batch_polar_rot
+from PolarVW.polarutil import batch_polar_rot
 
 train_exam_ids = dbloader.list_exams('train')
 val_exam_ids = dbloader.list_exams('val')
@@ -169,8 +169,8 @@ def data_generator(config,exams,aug):
                         yield xarray, yarray
 
 
-from src.polarutil import toctbd, polarpredimg, polar_pred_cont_cst, plotct, plotpolar
-from src.eval import DSC, diffmap
+from PolarVW.polarutil import toctbd, polarpredimg, polar_pred_cont_cst, plotct, plotpolar
+from PolarVW.eval import DSC, diffmap
 def get_val_dice(cnn,config):
     val_dsc = []
     taskdir = cfg['taskdir']
@@ -269,7 +269,7 @@ logdirprof = DATADESKTOPdir+'/Ftensorflow/LiChen/logs/' + taskname+'/training/pl
 if not os.path.exists(logdir):
     os.makedirs(logdirprof)
 
-from src.log import TrainValTensorBoard
+from PolarVW.log import TrainValTensorBoard
 tensorboard = TrainValTensorBoard(log_dir=logdir,write_graph=False)
 
 

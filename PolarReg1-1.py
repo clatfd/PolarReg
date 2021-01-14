@@ -18,7 +18,7 @@ print(get_available_gpus(),platform,tf.__version__,keras.__version__)
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-from src.loader import DBLoader,CaseLoader
+from PolarVW.loader import DBLoader,CaseLoader
 
 taskname = 'PolarReg1-1'
 

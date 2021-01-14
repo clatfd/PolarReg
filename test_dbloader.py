@@ -1,9 +1,9 @@
 import os
 import numpy as np
 import random
-from src.loader import DBLoader
-from src.db import adddb
-from src.variables import cdir
+from PolarVW.loader import DBLoader
+from PolarVW.db import adddb
+from PolarVW.variables import cdir
 
 dbnames = ['capricebaseline',
            'careiicarotid',
