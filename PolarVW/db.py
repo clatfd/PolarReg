@@ -27,7 +27,7 @@ def adddb(dbloader,dbname,dbdir=None):
 
 
 #read dcm image for testing
-def load_dcm_stack(dicompath, norm=0, seq='101'):
+def load_dcm_stack(dicompath, norm=0, seq='101',refscale=1,shift_x=0,shift_y=0):
     piname = dicompath.split('/')[-2]
     einame = dicompath.split('/')[-1]
     imgnamepattern = os.path.join(dicompath, einame + 'S' + seq + 'I*.dcm')
@@ -54,7 +54,10 @@ def load_dcm_stack(dicompath, norm=0, seq='101'):
                     padarr[0:RefDs.shape[0], 0:RefDs.shape[1]] = RefDs
                     RefDs = padarr
                     RefDs = cv2.resize(RefDs, (512, 512))
-
+            if refscale!=1:
+                RefDs = cv2.resize(RefDs, (0, 0), fx=refscale, fy=refscale)
+            if shift_y!=0 or shift_x!=0:
+                RefDs = croppatch(RefDs, (shift_y + 256) , (shift_x + 256), 256, 256)
             dcmimg = RefDs / np.max(RefDs)
             cartimgstack[slicei - 1] = dcmimg
         else:
@@ -86,11 +89,11 @@ import copy
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
-def gen_aug_patch(caseloader,slicei):
+def gen_aug_patch(caseloader,slicei,dcmstack=None):
     DEBUG = 0
     ctx, cty = caseloader.loadct(slicei)
-    dcmstack = caseloader.loadstack(slicei,'dcm')
-    dcmimg = dcmstack[:,:,dcmstack.shape[2]//2]
+    if dcmstack is None:
+        dcmstack = caseloader.loadstack(slicei,'dcm')
 
     cartcont = caseloader.load_cart_cont(slicei)
 
@@ -146,13 +149,21 @@ def gen_aug_patch(caseloader,slicei):
 
     aug_patch_obj['auginfo'] = []
 
+    #plt.imshow(dcmstack)
+    #plt.title('dcmstack')
+    #plt.show()
+
     for cti in dist_pred_ct_gt.keys():
         cctx = int(round(int(cti.split('-')[0])+ctx-256))
         ccty = int(round(int(cti.split('-')[1])+cty-256))
         #print(cctx,ccty)
         tx = cctx-ctx
         ty = ccty-cty
+
         new_cart_patch = croppatch(dcmstack,ccty,cctx,256,256)
+        #plt.imshow(new_cart_patch[:,:,1])
+        #plt.title('new_cart_patch')
+        #plt.show()
         new_cart_patch = new_cart_patch/np.max(new_cart_patch)
         aug_cart_patch_batch.append(new_cart_patch)
 

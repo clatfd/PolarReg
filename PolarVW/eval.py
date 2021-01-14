@@ -176,8 +176,11 @@ class Evalresult():
             cdsc = dscs[ti]
             slicename = slicenames[ti]
             print(cdsc, slicename)
-            pjname, pename = slicename.split('-')
-            einame = pjname + '-' + pename.split('I')[0] + slicename[-1]
+            sepindex = slicename.index('-')
+            pjname, pename = slicename[:sepindex], slicename[sepindex+1:]
+            #print(pjname, pename)
+            pename_noslice = pename[:-pename[::-1].index('I')-1]
+            einame = pjname + '-' + pename_noslice + slicename[-1]
             if 'polar_plot_name' in self.result[einame][slicename]:
                 polar_plot = cv2.imread(self.result[einame][slicename]['polar_plot_name'])
                 plt.figure(figsize=(20, 8))

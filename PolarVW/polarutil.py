@@ -197,7 +197,7 @@ def plotct(sz, contourin, contourout):
 def plotpolar(rho, polarbd):
     imgmask = np.zeros((len(polarbd), rho), dtype=np.uint8)
     for conti in range(len(polarbd)):
-        imgmask[conti, int(round(polarbd[conti][0] + 1)):int(round(polarbd[conti][1] + 1))] = 1
+        imgmask[conti, max(0,int(round(polarbd[conti][0] + 1))):int(round(polarbd[conti][1] + 1))] = 1
     return imgmask
 
 def draw_com_vw(com_vw_name,cart_vw_label,cart_vw_seg,cartpatch):
@@ -206,9 +206,9 @@ def draw_com_vw(com_vw_name,cart_vw_label,cart_vw_seg,cartpatch):
     comimg[:, :, 1] = cart_vw_seg * 255
     cv2.imwrite(com_vw_name,comimg)
 
-from PolarVW.eval import diffmap,DSC
+from PolarVW.eval import diffmap, DSC
 def polar_plot(polar_plot_name,cart_patch,cart_label,polarbd,cart_seg,
-               polar_padisttch,polar_label,cart_unet,cart_mask):
+               polar_patch,polar_label,cart_unet,cart_mask):
     fz = 20
     fig = plt.figure(figsize=(20, 8))
     plt.subplot(2, 5, 1)

@@ -8,7 +8,7 @@ import cv2
 from PolarVW.variables import DATADESKTOPdir
 from PolarVW.BB import BB
 import matplotlib.pyplot as plt
-from PolarVW.UTL import croppatch
+from PolarVW.UTL import croppatch, topolar
 
 class DBLoader():
 	def __init__(self,pilist=None):
@@ -50,6 +50,23 @@ class DBLoader():
 			self.pilist[pi].append(listname)
 		else:
 			self.pilist[pi] = [listname]
+
+	def genSep(self,train_val_sep=0.8,val_test_sep=0.9):
+		pilist = self.pilist
+		pilist_keys = list(pilist.keys())
+		np.random.shuffle(pilist_keys)
+		train_val_sep_id = int(round(len(pilist_keys) * train_val_sep))
+		val_test_sep_id = int(round(len(pilist_keys) * val_test_sep))
+		dbsep = {'train':[],'val':[],'test':[]}
+		for pid in range(len(pilist_keys)):
+			pi = pilist_keys[pid]
+			if pid<train_val_sep_id:
+				dbsep['train'].append(pi)
+			elif pid <val_test_sep_id:
+				dbsep['val'].append(pi)
+			else:
+				dbsep['test'].append(pi)
+		return dbsep
 
 	def loadsep(self,dbsep):
 		self.trainlist = []
@@ -150,6 +167,8 @@ class CaseLoader():
 				self.art = 'Knee'
 			elif self.caselist['pjname'] in ['WALLIV0.5mm','reaml_2tp']:
 				self.art = 'ICA'
+			elif self.caselist['pjname'] in ['iph_cohort_progression','iph_cohort_baseline']:
+				self.art = 'MERGE'
 			else:
 				self.art = 'Carotid'
 		self.targetprefix = DATADESKTOPdir+'/DVWIMAGES/'
@@ -158,6 +177,11 @@ class CaseLoader():
 			self.dcmprefix = self.caselist['dcmprefix']
 		else:
 			self.dcmprefix = ''
+		if 'dcmscale' in self.caselist:
+			self.dcm_scale = self.caselist['dcmscale']
+		else:
+			#default dcm need to enlarge for 4 times
+			self.dcm_scale = 4
 
 	def __repr__(self): 
 		return 'project:'+self.pjname+',pi:'+self.caselist['pi']+',ei:'+self.caselist['ei']+',side:'+self.caselist['side']+',slices:'+str(self.size)
@@ -212,7 +236,9 @@ class CaseLoader():
 				RefDs = cv2.resize(RefDs, (512 * SCALE, 512 * SCALE))
 			else:
 				padarr = np.zeros((max(RefDs.shape), max(RefDs.shape)))
-				padarr[0:RefDs.shape[0], 0:RefDs.shape[1]] = RefDs
+				# padarr[0:RefDs.shape[0],0:RefDs.shape[1]] = RefDs
+				padarr[max(RefDs.shape) // 2 - RefDs.shape[0] // 2:max(RefDs.shape) // 2 + RefDs.shape[0] // 2,
+				max(RefDs.shape) // 2 - RefDs.shape[1] // 2:max(RefDs.shape) // 2 + RefDs.shape[1] // 2] = RefDs
 				RefDs = padarr
 				RefDs = cv2.resize(RefDs, (512 * SCALE, 512 * SCALE))
 		else:
@@ -352,6 +378,12 @@ class CaseLoader():
 			polar_label_img = polarpatchoff
 		return polar_label_img.astype(np.float)
 
+	def load_polar_vw(self,slicei,offset=0):
+		if not self.valid_slicei(slicei):
+			return None
+		polar_label_img = self.load_polar_label(slicei)
+		return polar_label_img[:,:,1]-polar_label_img[:,:,0]
+
 	def load_stack_by_id(self,sliceidx,loadf,nei=1,offset=0):
 		if sliceidx>=self.size or sliceidx<0:
 			print('over size')
@@ -382,7 +414,10 @@ class CaseLoader():
 			print('unknown loadfunc',loadf)
 			return
 
-		imgslice = loadfunc(slicei)
+		if loadf=='dcm':
+			imgslice = self.loaddcm(slicei,SCALE=self.dcm_scale)
+		else:
+			imgslice = loadfunc(slicei)
 		imgstack = np.repeat(np.expand_dims(imgslice,-1),2*nei+1,axis=-1)
 		for ni in range(1,nei+1):
 			imgslicep = loadfunc(slicei-ni)
@@ -413,6 +448,17 @@ class CaseLoader():
 				cart_label_vw_aug = croppatch(cart_label_vw, 256 + cty, 256 + ctx, 256, 256)
 				cart_label_vw_aug_batch.append(cart_label_vw_aug)
 			return cart_label_vw_aug_batch
+		elif type == 'polar_label':
+			aug_offs = self.load_aug_off(slicei)
+			cart_label_vw = self.load_cart_vw(slicei)
+			polar_label_vw_aug_batch = []
+			for augi in range(len(aug_offs)):
+				ctx = aug_offs[augi][0]
+				cty = aug_offs[augi][1]
+				cart_label_vw_aug = croppatch(cart_label_vw, 256 + cty, 256 + ctx, 256, 256)
+				polar_label_vw_aug = topolar(cart_label_vw_aug,256,256)
+				polar_label_vw_aug_batch.append(polar_label_vw_aug)
+			return polar_label_vw_aug_batch
 		else:
 			print('unknown type')
 			return
@@ -480,3 +526,67 @@ class CaseLoader():
 		plt.legend()
 		plt.show()
 
+	def check_patch(self,slicei):
+		if not self.valid_slicei(slicei):
+			return None
+
+		polar_patch = self.load_polar_patch(slicei)
+		cart_patch = self.load_cart_patch(slicei)
+		polar_label = self.load_polar_vw(slicei)
+		cart_label = self.load_cart_vw(slicei)
+		polarbd = self.load_polar_cont(slicei)*256
+
+		self.plot_all_patches(cart_patch,cart_label,polar_patch,polar_label,polarbd)
+
+	def check_aug_patch(self,slicei,augi=None):
+		if not self.valid_slicei(slicei):
+			return None
+
+		cart_patches = self.load_aug_patch(slicei,'cart_patch')
+		cart_labeles = self.load_aug_patch(slicei,'cart_label')
+		polar_patches = self.load_aug_patch(slicei,'polar_patch')
+		polar_labeles = self.load_aug_patch(slicei,'polar_label')
+		polarbdes = self.load_aug_patch(slicei, 'polar_cont')
+
+		if augi is None:
+			augs = np.arange(cart_patches.shape[0])
+		else:
+			augs = [augi]
+
+		for augi in augs:
+			cart_patch = cart_patches[augi,:,:,:]
+			cart_label = cart_labeles[augi]
+			polar_patch = polar_patches[augi,:,:,:]
+			polar_label = polar_labeles[augi]
+			polarbd = polarbdes[augi]*256
+			self.plot_all_patches(cart_patch,cart_label,polar_patch,polar_label,polarbd)
+
+	def plot_all_patches(self,cart_patch,cart_label,polar_patch,polar_label,polarbd):
+		fz = 20
+		fig = plt.figure(figsize=(12, 8))
+		plt.subplot(2, 3, 1)
+		plt.title('Cartesian Patch', fontsize=fz)
+		plt.imshow(cart_patch, cmap='gray')
+
+		plt.subplot(2, 3, 2)
+		plt.title('Cartesian Label', fontsize=fz)
+		plt.imshow(cart_label, cmap='gray')
+
+		plt.subplot(2, 3, 4)
+		plt.title('Polar Patch', fontsize=fz)
+		plt.imshow(polar_patch, cmap='gray')
+
+		plt.subplot(2, 3, 5)
+		plt.title('Polar Label', fontsize=fz)
+		plt.imshow(polar_label, cmap='gray')
+
+		plt.subplot(2, 3, 6)
+		plt.title('Polar Prediction', fontsize=fz)
+		plt.xlim([0, 256])
+		plt.ylim([polarbd.shape[0], 0])
+		plt.plot(polarbd[::4, 0], np.arange(0, polarbd.shape[0], 4), 'o', markersize=2, label='Lumen')
+		plt.plot(polarbd[::4, 1], np.arange(0, polarbd.shape[0], 4), 'o', markersize=2, label='Wall')
+		plt.legend()
+
+		plt.show()
+		plt.close()

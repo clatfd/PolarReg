@@ -55,7 +55,7 @@ def buildmodel(config):
         regnum = config['regnum']
     else:
         regnum = 2
-    regr = Dense(config['patchheight']*regnum, name='aux_outputr')(fcn1)
+    regr = Dense(config['patchheight']*regnum, name='aux_outputr')(fcn1)#,activation='softmax'
     regr = Reshape((config['patchheight'], regnum), name='reg')(regr)
 
     if 'gradinput' in config and config['gradinput']:
